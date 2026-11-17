@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from .data import Book, MaxyClient, Window
+from .data import Book, MaxyClient, Window, _ts as _dt
 from .memory import Memory
 from .model import Calibrator, snapshot
 from .strategy import Config, Engine, Position, taker_fee
@@ -48,6 +48,13 @@ def fetch_windows(client: MaxyClient, days: float, end_ts: int | None = None,
     start_ts = end_ts - int(days * 86400)
     log(f"listing settled {client.series} markets for the last {days:g} days...")
     markets = client.settled_markets(start_ts, end_ts)
+    if markets:
+        oldest = min(int(_dt(m["close_time"])) for m in markets)
+        if oldest - 900 > start_ts:
+            older = client.older_markets(start_ts, oldest - 900)
+            log(f"listing reaches back to {time.strftime('%Y-%m-%d', time.gmtime(oldest))}; "
+                f"adding {len(older)} older windows by ticker")
+            markets += older
     log(f"{len(markets)} markets; downloading history (cached in {client.cache})")
     out, done = [], 0
     with ThreadPoolExecutor(workers) as ex:

@@ -172,12 +172,46 @@ class MaxyClient:
             if stop or not cursor or not evs:
                 return out
 
+    def market(self, ticker: str) -> dict | None:
+        try:
+            return self._get(f"{KALSHI}/markets/{ticker}", retries=2).get("market")
+        except Exception:
+            return None
+
+    def older_markets(self, start_ts: int, end_ts: int) -> list[dict]:
+        """Markets the events listing no longer returns (it stops after ~2 months).
+
+        Tickers are deterministic from the close time in New York time, e.g.
+        KXBTC15M-26NOV171615-15 closes 16:15 ET. Each one costs a lookup.
+        Already-cached windows are not looked up again.
+        """
+        from zoneinfo import ZoneInfo
+        ny = ZoneInfo("America/New_York")
+        out = []
+        t = end_ts - end_ts % 900
+        while t >= start_ts:
+            ct = datetime.fromtimestamp(t, timezone.utc).astimezone(ny)
+            ev = f"{self.series}-{ct.strftime('%y%b%d%H%M').upper()}"
+            ticker = f"{ev}-{ct.strftime('%M')}"
+            if (self.cache / f"{ticker}.json.gz").exists():
+                out.append({"ticker": ticker, "_cached": True})
+            else:
+                out.append({"ticker": ticker, "event_ticker": ev, "_lookup": True})
+            t -= 900
+        return out
+
     def window(self, m: dict) -> Window | None:
         """Full history for one settled market (cached on disk)."""
         path = self.cache / f"{m['ticker']}.json.gz"
         if path.exists():
             with gzip.open(path, "rt") as fh:
                 return Window.from_json(json.load(fh))
+        if m.get("_cached"):
+            return None
+        if m.get("_lookup"):
+            m = self.market(m["ticker"])
+            if not m or m.get("result") not in ("yes", "no"):
+                return None
         open_ts, close_ts = _ts(m["open_time"]), _ts(m["close_time"])
         strike = _f(m.get("floor_strike"))
         if strike is None:

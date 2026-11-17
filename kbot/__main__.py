@@ -25,6 +25,8 @@ def main(argv=None):
     ap.add_argument("--take-profit", type=float, default=0.04)
     ap.add_argument("--stop-p", type=float, default=0.60)
     ap.add_argument("--qty", type=int, default=10)
+    ap.add_argument("--hold", action="store_true", help="hold to settlement unless the thesis breaks")
+    ap.add_argument("--only-last", type=int, default=0, help="only enter with this many seconds or fewer left")
     ap.add_argument("--rate", type=float, default=0.3, help="min seconds between requests")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -42,7 +44,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     state = Path(a.state); state.mkdir(exist_ok=True)
     cfg = Config(min_p=a.min_p, min_ev=a.min_ev, take_profit=a.take_profit,
-                 stop_p=a.stop_p, qty=a.qty)
+                 stop_p=a.stop_p, qty=a.qty, hold=a.hold, only_last=a.only_last)
     cal_p, mem_p = state / f"calibrator-{a.coin}.json", state / f"memory-{a.coin}.json"
     client = MaxyClient(a.coin, min_interval=a.rate)
 

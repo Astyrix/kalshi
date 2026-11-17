@@ -27,6 +27,8 @@ class Config:
     no_entry_last: int = 45       # seconds before close with no new entries
     horizon: int = 60             # seconds used for trough / peak estimates
     qty: int = 10
+    hold: bool = False            # hold to settlement; only exit if the thesis breaks
+    only_last: int = 0            # if > 0, only enter with this many seconds or fewer left
 
 
 @dataclass
@@ -109,6 +111,8 @@ class Engine:
                 reasons.append(f"ask {ask:.2f} leaves no room to sell at a profit")
             if s.tau <= cfg.no_entry_last:
                 reasons.append(f"only {s.tau}s left, too late to exit early")
+            if cfg.only_last and s.tau > cfg.only_last:
+                reasons.append(f"{s.tau}s left; this config only enters in the last {cfg.only_last}s")
             if vel < -1.0:
                 reasons.append(f"last 60s ran {abs(vel):.1f} sigma against {side}; pullback still in progress")
             if not reasons:
@@ -143,7 +147,10 @@ class Engine:
         locked = bid - pos.entry - fee_in - fee_out
         base["unrealized_pnl_per_contract"] = round(locked, 4)
         why = None
-        if locked >= cfg.take_profit:
+        if cfg.hold:
+            if p < cfg.stop_p:
+                why = f"thesis broken: P(win) fell to {p:.1%} (< {cfg.stop_p:.0%}); cutting exposure at {bid:.2f}"
+        elif locked >= cfg.take_profit:
             why = f"profit target hit: selling at {bid:.2f} locks {locked:+.3f}/contract after fees"
         elif p < cfg.stop_p:
             why = f"thesis broken: P(win) fell to {p:.1%} (< {cfg.stop_p:.0%}); cutting exposure at {bid:.2f}"
