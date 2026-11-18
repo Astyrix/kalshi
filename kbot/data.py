@@ -173,10 +173,17 @@ class MaxyClient:
                 return out
 
     def market(self, ticker: str) -> dict | None:
-        try:
-            return self._get(f"{KALSHI}/markets/{ticker}", retries=2).get("market")
-        except Exception:
-            return None
+        """Look up one market; Kalshi moves ones older than ~2 months to /historical."""
+        for path in (f"{KALSHI}/markets/{ticker}", f"{KALSHI}/historical/markets/{ticker}"):
+            try:
+                m = self._get(path, retries=2).get("market")
+            except Exception:
+                continue
+            if m:
+                if "historical" in path:
+                    m["_historical"] = True
+                return m
+        return None
 
     def older_markets(self, start_ts: int, end_ts: int) -> list[dict]:
         """Markets the events listing no longer returns (it stops after ~2 months).
@@ -217,14 +224,19 @@ class MaxyClient:
         if strike is None:
             return None
         live = self._get(f"{BASE}/api/live/{m['event_ticker']}", {"minutes": 20})
-        cs = self._get(f"{KALSHI}/series/{self.series}/markets/{m['ticker']}/candlesticks",
-                       {"start_ts": open_ts, "end_ts": close_ts, "period_interval": 1})
+        cparams = {"start_ts": open_ts, "end_ts": close_ts, "period_interval": 1}
+        if m.get("_historical"):
+            cs = self._get(f"{KALSHI}/historical/markets/{m['ticker']}/candlesticks", cparams)
+        else:
+            cs = self._get(f"{KALSHI}/series/{self.series}/markets/{m['ticker']}/candlesticks", cparams)
         quotes = []
         for c in cs.get("candlesticks") or []:
+            yb, ya = c.get("yes_bid") or {}, c.get("yes_ask") or {}
+            # live endpoint uses *_dollars / volume_fp; historical uses close / volume
             quotes.append((int(c["end_period_ts"]),
-                           _f((c.get("yes_bid") or {}).get("close_dollars")),
-                           _f((c.get("yes_ask") or {}).get("close_dollars")),
-                           _f(c.get("volume_fp")) or 0.0))
+                           _f(yb.get("close_dollars", yb.get("close"))),
+                           _f(ya.get("close_dollars", ya.get("close"))),
+                           _f(c.get("volume_fp", c.get("volume"))) or 0.0))
         w = Window(event=m["event_ticker"], ticker=m["ticker"], strike=strike,
                    open_ts=open_ts, close_ts=close_ts, result=m.get("result"),
                    settle_value=_f(m.get("expiration_value")),
