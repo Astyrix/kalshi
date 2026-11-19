@@ -300,7 +300,22 @@ def lgb_reg(X, y):
     return m.fit(X[ok], y[ok])
 
 
-def save_model(path, names, X, Y, keys, drop, n_windows):
+ORIGINAL_PATTERNS = {"doji", "hammer", "hanging_man", "shooting_star", "inverted_hammer", "bull_engulfing",
+                     "bear_engulfing", "bull_harami", "bear_harami", "piercing", "dark_cloud", "morning_star",
+                     "evening_star", "three_soldiers", "three_crows", "bull_marubozu", "bear_marubozu",
+                     "inside_bar", "outside_bar", "tweezer_top", "tweezer_bottom"}
+LEAN_CHART = {"breakout_up", "breakout_down", "failed_breakout_up", "failed_breakout_down"}
+
+
+def lean_ok(name: str) -> bool:
+    if "_chart_" in name:
+        return name.split("_chart_")[1] in LEAN_CHART
+    if "_pat_" in name:
+        return name.split("_pat_")[1] in ORIGINAL_PATTERNS
+    return True
+
+
+def save_model(path, names, X, Y, keys, drop, n_windows, lean=False):
     """Fit every TP/SL pair (and the index stop-vs-target classifier) on all rows."""
     import pickle
     import lightgbm as lgb
@@ -312,7 +327,7 @@ def save_model(path, names, X, Y, keys, drop, n_windows):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as fh:
         pickle.dump({"names": names, "models": models, "idx_clf": idx_clf, "keys": keys,
-                     "barriers": BARRIERS, "drop": sorted(drop), "trained_windows": n_windows,
+                     "barriers": BARRIERS, "drop": sorted(drop), "lean_candles": lean, "trained_windows": n_windows,
                      "trained_at": int(time.time())}, fh)
     print(f"saved model ({len(names)} features, {len(keys)} stop/target pairs) to {path}", flush=True)
 
@@ -326,6 +341,9 @@ def main(argv=None):
     ap.add_argument("--drop", default="", help="comma-separated skill groups to leave out, e.g. flow,calendar")
     ap.add_argument("--save-model", help="train on ALL windows and save the model here (for kbot paper)")
     ap.add_argument("--no-walk", action="store_true", help="with --save-model: skip the walk-forward test")
+    ap.add_argument("--lean-candles", action="store_true",
+                    help="keep only the original candle patterns plus breakout chart patterns "
+                         "(the full set adds ~120 mostly-noise inputs)")
     a = ap.parse_args(argv)
     drop = {g for g in a.drop.split(",") if g}
     t0 = time.time()
@@ -335,7 +353,8 @@ def main(argv=None):
     ctx = Context(ws, series)
     print(f"{len(ws)} windows; building day-trader features...", flush=True)
     rows = build(ws, ctx, client)
-    names = sorted({k for r in rows for k in r["f"] if k.split("__")[0] not in drop})
+    names = sorted({k for r in rows for k in r["f"] if k.split("__")[0] not in drop
+                    and not (a.lean_candles and not lean_ok(k))})
     X = np.array([[r["f"].get(n, np.nan) for n in names] for r in rows], dtype=float)
     W = np.array([r["w"] for r in rows])
     print(f"{len(rows)} entry moments, {len(names)} features [{time.time() - t0:.0f}s]", flush=True)
@@ -375,7 +394,7 @@ def main(argv=None):
 
     all_cols = list(range(len(names)))
     if a.save_model:
-        save_model(a.save_model, names, X, Y, keys, drop, len(ws))
+        save_model(a.save_model, names, X, Y, keys, drop, len(ws), a.lean_candles)
         if a.no_walk:
             return
     pred, ts = walk(all_cols)
