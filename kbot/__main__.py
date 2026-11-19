@@ -1,7 +1,8 @@
 """Command line:
 
   python -m kbot backtest --days 30          walk-forward backtest, learns as it goes
-  python -m kbot live                        paper-trade the current 15-minute market
+  python -m kbot live                        paper-trade the current 15-minute market (simple model)
+  python -m kbot paper --margin 0.02         paper-trade with the day-trader scalp model
 """
 from __future__ import annotations
 
@@ -41,7 +42,17 @@ def main(argv=None):
     l.add_argument("--ticks", type=int)
     l.add_argument("--quiet-waits", action="store_true", help="only print ENTER/EXIT and fills")
 
+    pp = sub.add_parser("paper", help="paper-trade with the day-trader model (kbot/paper.py)")
+    pp.add_argument("--model", default="state/trader-model.pkl")
+    pp.add_argument("--margin", type=float, default=0.02, help="min predicted profit per contract to enter")
+    pp.add_argument("--minutes", type=int, help="stop after this many minutes")
+    pp.add_argument("--history-days", type=float, default=35)
+
     a = ap.parse_args(argv)
+    if a.cmd == "paper":
+        from .paper import Paper
+        Paper(a.model, a.margin, a.qty, a.history_days, Path(a.state), Path("reports"), a.rate).run(a.minutes)
+        return
     state = Path(a.state); state.mkdir(exist_ok=True)
     cfg = Config(min_p=a.min_p, min_ev=a.min_ev, take_profit=a.take_profit,
                  stop_p=a.stop_p, qty=a.qty, hold=a.hold, only_last=a.only_last)

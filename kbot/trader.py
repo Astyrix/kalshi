@@ -57,17 +57,35 @@ class Context:
         self.series = series
         a, b = series.t0, series.t0 + len(series.v)
         self.cb = E.coinbase_minutes("BTC-USD", a, b)
+        self._index_cb()
+        self.fund_ts, self.fund = [], []
+        try:
+            f = E.okx_funding(a)
+            self.fund_ts = [x[0] for x in f]
+            self.fund = [x[1] for x in f]
+        except Exception:
+            pass                                  # funding only feeds the "flow" group
+        self.fomc = E.fomc_decisions()
+        # causal "typical move" tables: hour-of-day -> running |15m move| and volume
+        self._prep_hour_tables()
+
+    def _index_cb(self):
         self.cb_ts = np.array(sorted(self.cb))
         self.cb_close = np.array([self.cb[t][3] for t in self.cb_ts])
         self.cb_vol = np.array([self.cb[t][4] for t in self.cb_ts])
         self.cb_pv = np.cumsum(self.cb_close * self.cb_vol)
         self.cb_cv = np.cumsum(self.cb_vol)
-        f = E.okx_funding(a)
-        self.fund_ts = [x[0] for x in f]
-        self.fund = [x[1] for x in f]
-        self.fomc = E.fomc_decisions()
-        # causal "typical move" tables: hour-of-day -> running |15m move| and volume
-        self.hour_move = defaultdict(list)       # (ts, |move|) appended in time order
+
+    def refresh(self, now: int, minutes: int = 120):
+        """Live: pull the latest Coinbase minutes and rebuild the lookup tables."""
+        start = datetime.fromtimestamp(now - minutes * 60, timezone.utc)
+        end = datetime.fromtimestamp(now, timezone.utc)
+        rows = E._get("https://api.exchange.coinbase.com/products/BTC-USD/candles",
+                      {"granularity": 60, "start": start.isoformat(), "end": end.isoformat()})
+        for t, lo, hi, o, c, v in rows:
+            if int(t) + 60 <= now:                # only finished minutes
+                self.cb[int(t)] = (o, hi, lo, c, v)
+        self._index_cb()
         self._prep_hour_tables()
 
     def _prep_hour_tables(self):
@@ -282,13 +300,34 @@ def lgb_reg(X, y):
     return m.fit(X[ok], y[ok])
 
 
+def save_model(path, names, X, Y, keys, drop, n_windows):
+    """Fit every TP/SL pair (and the index stop-vs-target classifier) on all rows."""
+    import pickle
+    import lightgbm as lgb
+    models = {k: lgb_reg(X, Y[k]) for k in keys}
+    yb = Y["idx_barrier"]
+    ok = ~np.isnan(yb) & (yb != 0)
+    idx_clf = lgb.LGBMClassifier(n_estimators=250, learning_rate=0.03, num_leaves=15, min_child_samples=100,
+                                 verbose=-1, random_state=0).fit(X[ok], (yb[ok] > 0).astype(int))
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as fh:
+        pickle.dump({"names": names, "models": models, "idx_clf": idx_clf, "keys": keys,
+                     "barriers": BARRIERS, "drop": sorted(drop), "trained_windows": n_windows,
+                     "trained_at": int(time.time())}, fh)
+    print(f"saved model ({len(names)} features, {len(keys)} stop/target pairs) to {path}", flush=True)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=float, default=70)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--start", type=float, default=0.5)
     ap.add_argument("--skip-ablation", action="store_true")
+    ap.add_argument("--drop", default="", help="comma-separated skill groups to leave out, e.g. flow,calendar")
+    ap.add_argument("--save-model", help="train on ALL windows and save the model here (for kbot paper)")
+    ap.add_argument("--no-walk", action="store_true", help="with --save-model: skip the walk-forward test")
     a = ap.parse_args(argv)
+    drop = {g for g in a.drop.split(",") if g}
     t0 = time.time()
     client = MaxyClient("BTC")
     ws = [w for w in load_cached("BTC", a.days)]
@@ -296,7 +335,7 @@ def main(argv=None):
     ctx = Context(ws, series)
     print(f"{len(ws)} windows; building day-trader features...", flush=True)
     rows = build(ws, ctx, client)
-    names = sorted({k for r in rows for k in r["f"]})
+    names = sorted({k for r in rows for k in r["f"] if k.split("__")[0] not in drop})
     X = np.array([[r["f"].get(n, np.nan) for n in names] for r in rows], dtype=float)
     W = np.array([r["w"] for r in rows])
     print(f"{len(rows)} entry moments, {len(names)} features [{time.time() - t0:.0f}s]", flush=True)
@@ -335,6 +374,10 @@ def main(argv=None):
         return pnl, info
 
     all_cols = list(range(len(names)))
+    if a.save_model:
+        save_model(a.save_model, names, X, Y, keys, drop, len(ws))
+        if a.no_walk:
+            return
     pred, ts = walk(all_cols)
     te = W >= ts
     print(f"\nTEST REGION: windows {ts}-{len(ws)} ({te.sum()} entry moments), each fold "

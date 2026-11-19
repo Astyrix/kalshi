@@ -68,3 +68,26 @@ def test_backtest_runs_and_settles():
     summ = backtest.run([w], Calibrator(a=1.0, c=0.0), Memory(), Config())
     assert summ["windows"] == 1
     assert summ["trades"] <= 1
+
+
+def test_chart_patterns_and_extend(tmp_path):
+    import numpy as np
+    from kbot.data import Window
+    from kbot.patterns import CHART_PATTERNS, Series, chart_patterns, detect
+    from kbot.pattern_memory import PatternMemory
+    assert set(chart_patterns([None] * 5, 1.0)) == set(CHART_PATTERNS)
+    # a clean breakout: 25 flat candles, then a big green one
+    cs = [(100, 101, 99, 100)] * 25 + [(100, 110, 100, 109)]
+    f = chart_patterns(cs, 1.0)
+    assert f["breakout_up"] == 1.0 and f["breakout_down"] == 0.0
+    t0 = 1_700_000_100 - 1_700_000_100 % 900
+    w = Window("E", "T", 100.0, t0, t0 + 900, index=[(t0 + i, 100.0 + i * 0.01) for i in range(900)])
+    s = Series([w])
+    s.extend([(t0 + 900 + i, 109.0) for i in range(0, 600, 2)])      # gaps of 1s get filled
+    assert s.at(t0 + 901) == 109.0 and s.at(t0 + 1300) == 109.0
+    m = PatternMemory(tmp_path / "pm.json", prior_path=tmp_path / "none.json")
+    m.pending.append({"key": "1m:pat_doji", "t": t0, "x": 100.0, "unit": 1.0, "due": t0 + 300})
+    out = m.resolve(s, t0 + 400)
+    assert out and m.view("1m:pat_doji")["live"]["n"] == 1
+    m.save()
+    assert PatternMemory(tmp_path / "pm.json", prior_path=tmp_path / "none.json").view("1m:pat_doji")["live"]["n"] == 1
