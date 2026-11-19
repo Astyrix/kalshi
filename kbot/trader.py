@@ -455,7 +455,7 @@ def main(argv=None):
             groups[f"regime={lab}"].append(p)
             for c in ("calendar__cal_us_session", "calendar__cal_weekend", "calendar__cal_830_window",
                       "calendar__cal_fomc_day"):
-                if X[i, names.index(c)] == 1:
+                if c in names and X[i, names.index(c)] == 1:
                     groups[c.split("__cal_")[1]].append(p)
             groups[f"pair={k}"].append(p)
         for g in sorted(groups):
