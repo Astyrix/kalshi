@@ -242,7 +242,7 @@ class Paper:
             self._decision(fh, T, mk, "ENTER_NOW", side, info, a, p, "edge above margin", active)
             _emit({"event": "PAPER_FILL", "side": "UP" if side == "up" else "DOWN", "price": p.entry,
                    "qty": p.qty, "take_profit_bid": round(p.entry + tp, 4),
-                   "stop_loss_bid": round(p.entry - sl, 4)}, fh)
+                   "stop_loss_bid": round(max(p.entry - sl, 0.01), 4)}, fh)
         elif not [p for p in self.positions if p.ticker == mk["ticker"]]:
             why = ("no entries in the last 2 minutes" if T > close_ts - 120 else
                    "waiting 5 min after last entry" if not can_enter else
@@ -264,7 +264,7 @@ class Paper:
             d["best_setup"] = {"pair": k, "predicted_pnl_per_contract": round(v, 4)}
         if pos:
             d["predicted_trough_or_peak"] = {"take_profit_bid": round(pos.entry + pos.tp, 4),
-                                             "stop_loss_bid": round(pos.entry - pos.sl, 4),
+                                             "stop_loss_bid": round(max(pos.entry - pos.sl, 0.01), 4),
                                              "entry": pos.entry}
         d["execution_price"] = None if px is None else round(px, 4)
         summ = self._summary()
