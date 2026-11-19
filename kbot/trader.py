@@ -377,6 +377,10 @@ def main(argv=None):
         out["scalp"].append(dict(margin=margin, trades=len(pnl), win_rate=float(wr), pnl=float(sum(pnl))))
         if pnl and (best is None or margin == 0.02):
             best = (margin, pnl, info)
+        Path("reports").mkdir(exist_ok=True)
+        Path(f"reports/trader_trades_m{margin:.2f}.json").write_text(json.dumps([
+            {"t": rows[i]["t"], "window": rows[i]["w"], "pair": k, "pnl": float(pp),
+             "yes_bid": rows[i]["q"][0], "yes_ask": rows[i]["q"][1]} for (i, k), pp in zip(info, pnl)]))
 
     # 3. results by regime / calendar (margin 0.02)
     if best:
