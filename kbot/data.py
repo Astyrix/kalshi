@@ -245,3 +245,62 @@ class MaxyClient:
         with gzip.open(path, "wt") as fh:
             json.dump(w.to_json(), fh)
         return w
+
+
+# ---- order flow (who is buying vs selling) -------------------------------------
+def flow_path(client: "MaxyClient", ticker: str) -> Path:
+    d = client.cache.parent / f"{client.coin}-flow"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{ticker}.json.gz"
+
+
+def load_flow(client: "MaxyClient", ticker: str):
+    p = flow_path(client, ticker)
+    if not p.exists():
+        return None
+    try:
+        with gzip.open(p, "rt") as fh:
+            return json.load(fh)
+    except (OSError, EOFError, ValueError):
+        return None
+
+
+def fetch_flow(client: "MaxyClient", w: "Window", bucket: int = 10, max_pages: int = 80):
+    """Kalshi trade tape for one window, summed into `bucket`-second buckets:
+    [bucket_ts, yes_taker_contracts, no_taker_contracts, trades, vwap_yes].
+    "yes taker" = someone paid up to buy YES (UP); "no taker" = paid up for NO."""
+    got = load_flow(client, w.ticker)
+    if got is not None:
+        return got
+    hist = w.close_ts < time.time() - 55 * 86400
+    url = f"{KALSHI}/historical/trades" if hist else f"{KALSHI}/markets/trades"
+    agg, cursor = {}, None
+    for _ in range(max_pages):
+        params = {"ticker": w.ticker, "limit": 1000}
+        if cursor:
+            params["cursor"] = cursor
+        d = client._get(url, params)
+        tr = d.get("trades") or []
+        if not tr and not hist and not cursor:      # moved to the archive
+            url, hist = f"{KALSHI}/historical/trades", True
+            continue
+        for t in tr:
+            ts = _ts(t["created_time"])
+            b = ts - ts % bucket
+            n = float(t.get("count_fp") or t.get("count") or 0)
+            yp = float(t.get("yes_price_dollars") or t.get("yes_price") or 0)
+            a = agg.setdefault(b, [b, 0.0, 0.0, 0, 0.0])
+            a[1 if t.get("taker_side") == "yes" else 2] += n
+            a[3] += 1
+            a[4] += n * yp
+        cursor = d.get("cursor")
+        if not cursor or not tr:
+            break
+    rows = []
+    for b in sorted(agg):
+        r = agg[b]
+        vol = r[1] + r[2]
+        rows.append([r[0], round(r[1], 2), round(r[2], 2), r[3], round(r[4] / vol, 4) if vol else None])
+    with gzip.open(flow_path(client, w.ticker), "wt") as fh:
+        json.dump(rows, fh)
+    return rows
