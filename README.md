@@ -59,7 +59,40 @@ sells by watching the bid (no resting orders), logs what a 5-second-checked
 exit and the depth at the best ask would have been, keeps open positions
 across restarts, saves newly settled markets and retrains once a day.
 
-Earlier results in this section were removed: they came from the biased backtest (see Current status).
+### Current status: no edge found after costs
+
+An earlier version of the backtest had look-ahead bias: it dropped every
+minute where one side of the book was empty, including minutes after the
+decision. A cheap contract that was dying goes one-sided, so its entry
+minute looked like the last quote and was skipped, and losing trades
+quietly vanished (cheap late moments in the table won 10.3%, the ones left
+out 0.1%). Every profitable backtest reported before the fix (+$250 to
++$1,465) was inflated by this. Fixed in `trader.build` / `all_quotes`, with
+a regression test.
+
+With the fix, the 10-month walk-forward paper trade
+(`python -m kbot.history_paper`, Feb-Nov 2026, model retrained monthly on
+earlier data, fills checked against real trades, ask + 1c in, bid - 1c out,
+fees both ways):
+
+| Rules | Trades | P&L |
+|---|---|---|
+| <=25c, 1c edge | 16 | +$3.05 |
+| <=25c, 2c edge | 5 | +$0.90 |
+| any price, 1c edge | 62 | -$12.91 |
+| any price, 2c edge | 18 | -$2.66 |
+
+The model rarely predicts an edge bigger than the spread, slippage and
+fees, and the few trades it takes break even. Cheap contracts in the last
+minutes win at about their price (about 3.5% won at about 3.4c with 2
+minutes left). Live paper trading agrees (29 trades, 3 wins, about -$2.70).
+
+What still holds: real trades at or better than the 1-minute quote happen
+within 2 seconds (`python -m kbot.fill_check --any-side --window 2`; queries
+over 30-60 s miss this because the trade API returns only the newest 1000
+trades). Spot (Coinbase) leads the MaxyCharts index by about 30 s, but
+Kalshi prices already reflect spot. Order flow and calendar inputs did not
+help.
 
 Patterns (`python -m kbot.pattern_study`): on the MaxyCharts index, 1-minute
 patterns look predictive, but that index lags Coinbase spot by about 30 s, so
