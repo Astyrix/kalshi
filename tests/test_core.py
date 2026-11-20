@@ -91,3 +91,19 @@ def test_chart_patterns_and_extend(tmp_path):
     assert out and m.view("1m:pat_doji")["live"]["n"] == 1
     m.save()
     assert PatternMemory(tmp_path / "pm.json", prior_path=tmp_path / "none.json").view("1m:pat_doji")["live"]["n"] == 1
+
+
+def test_labels_keep_dead_books():
+    """A contract whose book goes one-sided after entry is a loss, not skipped."""
+    from kbot.data import Window
+    from kbot.trader import all_quotes, barrier_pnl, valid_quote
+    c = 1_800_000_000
+    quotes = [(c - 900 + 60 * k, 0.5, 0.51, 1.0) for k in range(12)]
+    quotes += [(c - 180, 0.03, 0.04, 1.0), (c - 120, 0.02, 0.03, 1.0), (c - 60, None, 0.01, 1.0)]
+    w = Window("E", "T", 100.0, c - 900, c, result="no", quotes=quotes)
+    q = all_quotes(w)
+    assert len(q) == 15 and q[-1] == (c - 60, 0.0, 0.01)       # one-sided minute kept
+    assert not valid_quote(q[-1])
+    i = len(q) - 2                                              # buy UP at 2 min left
+    pnl = barrier_pnl(q, i, "up", 0.05, 0.05, w)
+    assert -0.05 < pnl < -0.03                                  # paid ~4c, sold at 0

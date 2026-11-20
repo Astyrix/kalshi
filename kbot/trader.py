@@ -239,6 +239,17 @@ def features(ctx: Context, w, t, q_hist, flow) -> dict[str, float] | None:
     return f
 
 
+def all_quotes(w):
+    """(t, yes_bid, yes_ask) for every minute before close; a missing bid is 0
+    and a missing ask is 1 (nobody on that side of the book)."""
+    return [(t, 0.0 if yb is None else yb, 1.0 if ya is None else ya)
+            for t, yb, ya, _ in w.quotes if t < w.close_ts]
+
+
+def valid_quote(x):
+    return 0.005 < x[1] <= x[2] < 0.995
+
+
 def barrier_pnl(q, i, side, tp, sl, w, slip=0.01):
     """P&L per contract of: buy at ask now, exit when bid >= entry+tp or
     <= entry-sl (checked each minute), else sell at the last bid before close."""
@@ -248,14 +259,14 @@ def barrier_pnl(q, i, side, tp, sl, w, slip=0.01):
     fee_in = taker_fee(min(entry, 0.99), QTY)
     last = None
     for j in range(i + 1, len(q)):
-        b = (q[j][1] if side == "up" else round(1 - q[j][2], 4)) - slip
+        b = max((q[j][1] if side == "up" else round(1 - q[j][2], 4)) - slip, 0.0)
         last = b
         if b >= entry + tp or b <= entry - sl:
-            return b - entry - fee_in - taker_fee(max(b, 0.01), QTY)
+            return b - entry - fee_in - (taker_fee(max(b, 0.01), QTY) if b > 0 else 0.0)
     if last is None:
         won = (side == "up") == (w.result == "yes")
         return (1.0 if won else 0.0) - entry - fee_in
-    return last - entry - fee_in - taker_fee(max(last, 0.01), QTY)
+    return last - entry - fee_in - (taker_fee(max(last, 0.01), QTY) if last > 0 else 0.0)
 
 
 def build(windows, ctx, client):
@@ -263,12 +274,21 @@ def build(windows, ctx, client):
     for wi, w in enumerate(windows):
         if w.result not in ("yes", "no"):
             continue
-        q = [(t, yb, ya) for t, yb, ya, _ in w.quotes
-             if yb is not None and ya is not None and 0.005 < yb <= ya < 0.995 and t < w.close_ts]
+        # every minute before close, including one-sided books (no bid = 0, no ask = 1).
+        # Only quotes up to t decide whether t is an entry moment and feed the
+        # features; the outcome label uses the full, unfiltered future. (Filtering
+        # future minutes with dead books used to drop exactly the losing trades.)
+        q = all_quotes(w)
         flow = load_flow(client, w.ticker)
-        for i in range(3, len(q) - 1):
+        past = []
+        for i in range(len(q)):
+            if not valid_quote(q[i]):
+                continue
+            past.append(q[i])
             t = q[i][0]
-            f = features(ctx, w, t, q[: i + 1], flow)
+            if len(past) < 4 or t > w.close_ts - 120:
+                continue
+            f = features(ctx, w, t, past, flow)
             if f is None:
                 continue
             y = {f"{side}_{tp}_{sl}": barrier_pnl(q, i, side, tp, sl, w)

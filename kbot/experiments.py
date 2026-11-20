@@ -35,8 +35,10 @@ KEYS = [f"{s}_{tp}_{sl}" for s in ("up", "dn") for tp, sl in BARRIERS]
 
 
 def quotes(w):
-    return [(t, yb, ya) for t, yb, ya, _ in w.quotes
-            if yb is not None and ya is not None and 0.005 < yb <= ya < 0.995 and t < w.close_ts]
+    """Every minute before close, unfiltered (see trader.all_quotes): label code
+    walks the real future, including books that went one-sided."""
+    from .trader import all_quotes
+    return all_quotes(w)
 
 
 def trail_pnl(q, i, side, tp, sl, w, trail=None, slip=0.01):
@@ -48,7 +50,7 @@ def trail_pnl(q, i, side, tp, sl, w, trail=None, slip=0.01):
     fee_in = taker_fee(min(entry, 0.99), QTY)
     peak, armed, last = None, False, None
     for j in range(i + 1, len(q)):
-        b = (q[j][1] if side == "up" else round(1 - q[j][2], 4)) - slip
+        b = max((q[j][1] if side == "up" else round(1 - q[j][2], 4)) - slip, 0.0)
         last = b
         if not armed:
             if b <= entry - sl:
@@ -105,6 +107,9 @@ def add_delayed_labels(d, ws, delay=1):
         if i is None or i + delay >= len(q) - 1:
             continue
         j = i + delay
+        from .trader import valid_quote
+        if not valid_quote(q[j]):
+            continue
         ask_out["up"][n], ask_out["dn"][n] = q[j][2], 1 - q[j][1]
         for k in KEYS:
             s_, tp, sl = k.split("_")

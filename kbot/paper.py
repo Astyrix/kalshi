@@ -95,7 +95,7 @@ class Paper:
         self.record_ticks = True               # save the book every 5s for exit research
         # second strategy, no model: buy any side priced <= rule_cap with 2-3 min
         # left and hold to settlement (backtest: +$1,465 over 12 months, 11/12 up)
-        self.rule_cap = 0.10
+        self.rule_cap = 0.0      # off: its backtest had look-ahead bias (see README)
         self.rule_open: list[dict] = []
         self.rule_done: set[str] = set()
         rp = self.state / "rule-open.json"
@@ -218,7 +218,7 @@ class Paper:
         self.rule_done.add(mk["ticker"])
         for side in ("up", "dn"):
             a = _ask(side, book.yes_bid, book.yes_ask)
-            if 0.005 < a <= self.rule_cap:
+            if self.rule_cap > 0 and 0.005 < a <= self.rule_cap:
                 pos = {"ticker": mk["ticker"], "side": "UP" if side == "up" else "DOWN", "t": T,
                        "ask": a, "entry": round(a + SLIP, 4), "qty": self.qty,
                        "offered": book.top_ask_size("UP" if side == "up" else "DOWN")}
