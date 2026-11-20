@@ -235,6 +235,15 @@ def main(argv=None):
         pb = e.walk(Y, seeds=(0, 1, 2, 3, 4))
         for m in (0.01, 0.02, 0.03):
             res[f"bagging m{m}"] = e.report(f"5-seed bagging margin {m}", *e.trade(pb, Y, m))
+    if run("cheap_bag"):
+        pb = e.walk(Y, seeds=(0, 1, 2, 3, 4))
+        for m in (0.005, 0.01, 0.02):
+            res[f"cheap_bag m{m}"] = e.report(f"cheap only + 5-seed bagging m{m}", *e.trade(pb, Y, m, cheap))
+    if run("cheap_max"):
+        for mx in (0.10, 0.15, 0.20, 0.30):
+            al = {k: e.ask(k.split("_")[0]) <= mx for k in KEYS}
+            res[f"cheap<={mx}"] = e.report(f"only <= {mx * 100:.0f}c, margin 0.01", *e.trade(base, Y, 0.01, al))
+        res["cheap m0.005"] = e.report("only <= 25c, margin 0.005", *e.trade(base, Y, 0.005, cheap))
     Path("reports").mkdir(exist_ok=True)
     import json
     Path("reports/experiments.json").write_text(json.dumps(res, indent=1))
