@@ -44,6 +44,12 @@ class Book:
     yes_ask: float | None
     yes_bid_size: float = 0.0
     yes_ask_size: float = 0.0
+    yes_bid_top: float = 0.0        # contracts resting at the best YES bid
+    yes_ask_top: float = 0.0        # contracts offered at the best YES ask (= best NO bid)
+
+    def top_ask_size(self, side: str) -> float:
+        """Contracts you could buy at the best ask right now."""
+        return self.yes_ask_top if side == "UP" else self.yes_bid_top
 
     @property
     def no_bid(self):
@@ -143,6 +149,8 @@ class MaxyClient:
             yes_ask=None if no_bid is None else round(1 - no_bid, 4),
             yes_bid_size=sum(q for _, q in yes),
             yes_ask_size=sum(q for _, q in no),
+            yes_bid_top=sum(q for p, q in yes if p == yes_bid),
+            yes_ask_top=sum(q for p, q in no if p == no_bid),
         )
 
     def index_series(self, event: str, minutes: int = 20) -> list[tuple[int, float]]:

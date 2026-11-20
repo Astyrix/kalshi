@@ -50,6 +50,11 @@ class Pos:
     ticker: str
     patterns: list = field(default_factory=list)
     predicted: float = 0.0
+    top_size: float | None = None     # contracts offered at the best ask when we bought
+    tick_exit: float | None = None    # where a 5-second-checked exit would have sold
+    tick_why: str | None = None
+    path_max: float | None = None     # best / worst bid seen while holding (5s checks)
+    path_min: float | None = None
 
 
 def _bid(side, yb, ya):
@@ -157,7 +162,15 @@ class Paper:
         rec = {"event": "PAPER_EXIT", "ticker": p.ticker, "side": "UP" if p.side == "up" else "DOWN",
                "entry": p.entry, "exit": px, "why": why, "tp": p.tp, "sl": p.sl,
                "pnl_usd": round(pnl_c * p.qty, 2), "held_s": int(time.time()) - p.t,
-               "patterns_at_entry": p.patterns[:8], "predicted_pnl_c": round(p.predicted, 4)}
+               "patterns_at_entry": p.patterns[:8], "predicted_pnl_c": round(p.predicted, 4),
+               "top_size_at_entry": p.top_size, "bid_path_max": p.path_max, "bid_path_min": p.path_min}
+        # what the same trade would have made with exits checked every 5 seconds
+        if p.tick_exit is not None:
+            tb = p.tick_exit
+            tick = tb - p.entry - taker_fee(min(p.entry, 0.99), p.qty) - taker_fee(max(tb, 0.01), p.qty)
+            rec.update(tick_exit=round(tb, 4), tick_why=p.tick_why, tick_pnl_usd=round(tick * p.qty, 2))
+        else:
+            rec.update(tick_exit=px, tick_why=why, tick_pnl_usd=rec["pnl_usd"])
         self.closed.append(rec)
         rec["realized_usd"] = round(sum(r["pnl_usd"] for r in self.closed), 2)
         _emit(rec, fh)
@@ -252,12 +265,13 @@ class Paper:
         info = {"pred": pred, "p_up": p_up, "f": f, "best": (best_k, best_v)}
         if can_enter and best_v > self.margin:
             a = _ask(side, book.yes_bid, book.yes_ask) + SLIP
-            p = Pos(side, tp, sl, round(a, 4), self.qty, T, mk["ticker"], list(active), best_v)
+            p = Pos(side, tp, sl, round(a, 4), self.qty, T, mk["ticker"], list(active), best_v,
+                    top_size=book.top_ask_size("UP" if side == "up" else "DOWN"))
             self.positions.append(p)
             self.last_entry[mk["ticker"]] = T
             self._decision(fh, T, mk, "ENTER_NOW", side, info, a, p, "edge above margin", active)
             _emit({"event": "PAPER_FILL", "side": "UP" if side == "up" else "DOWN", "price": p.entry,
-                   "qty": p.qty, "take_profit_bid": round(p.entry + tp, 4),
+                   "qty": p.qty, "offered_at_best_ask": p.top_size, "take_profit_bid": round(p.entry + tp, 4),
                    "stop_loss_bid": round(max(p.entry - sl, 0.01), 4)}, fh)
         elif not [p for p in self.positions if p.ticker == mk["ticker"]]:
             why = ("no entries in the last 2 minutes" if T > close_ts - 120 else
@@ -354,6 +368,32 @@ class Paper:
         self._retrain = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
         _emit({"event": "RETRAIN_STARTED"}, fh)
 
+    def _watch_until(self, until, mk, every=5.0):
+        """Between minute decisions: with a position open, look at the bid every
+        few seconds and note where a faster TP/SL exit would have sold. The
+        official exit stays the once-a-minute one the backtest simulated."""
+        while time.time() < until - 0.5:
+            open_ = [p for p in self.positions if mk and p.ticker == mk["ticker"]]
+            if not open_:
+                time.sleep(max(min(until - time.time(), 5.0), 0))
+                continue
+            t0 = time.time()
+            try:
+                book = self.client.book(mk["ticker"])
+            except Exception:
+                book = None
+            if book and book.yes_bid is not None and book.yes_ask is not None:
+                for p in open_:
+                    b = _bid(p.side, book.yes_bid, book.yes_ask) - SLIP
+                    p.path_max = b if p.path_max is None else max(p.path_max, round(b, 4))
+                    p.path_min = b if p.path_min is None else min(p.path_min, round(b, 4))
+                    if p.tick_exit is None:
+                        if b >= p.entry + p.tp:
+                            p.tick_exit, p.tick_why = round(b, 4), "take_profit"
+                        elif b <= p.entry - p.sl:
+                            p.tick_exit, p.tick_why = round(b, 4), "stop_loss"
+            time.sleep(max(min(every - (time.time() - t0), until - time.time()), 0))
+
     def run(self, minutes=None):
         fh = open(self.reports / "paper.jsonl", "a")
         mk, n = None, 0
@@ -361,7 +401,7 @@ class Paper:
             while minutes is None or n < minutes:
                 now = time.time()
                 T = int(now) - int(now) % 60 + 60
-                time.sleep(max(T + 3 - time.time(), 0))     # let the minute's data land
+                self._watch_until(T + 3, mk)                # let the minute's data land
                 try:
                     if mk is None or _ts(mk["close_time"]) <= T:
                         if mk is not None and not self._settle_leftovers(mk, fh):
@@ -412,6 +452,12 @@ def report(state=Path("state")):
     table("BY EXIT REASON", lambda r: [r["why"]])
     table("BY SIDE AND SETUP", lambda r: [f"{r['side']} tp{r['tp']} sl{r['sl']}"])
     table("BY PATTERN SHOWING AT ENTRY", lambda r: r.get("patterns_at_entry", []))
+    tk = [r for r in tr if "tick_pnl_usd" in r]
+    if tk:
+        print(f"\nEXIT SPEED: once-a-minute exits ${sum(r['pnl_usd'] for r in tk):.2f} vs "
+              f"5-second exits ${sum(r['tick_pnl_usd'] for r in tk):.2f} on the same {len(tk)} trades")
+        thin = [r for r in tk if r.get("top_size_at_entry") is not None and r["top_size_at_entry"] < 10]
+        print(f"  entries where fewer than 10 contracts were offered at the best ask: {len(thin)}")
     pred = np.array([r.get("predicted_pnl_c", 0) for r in tr])
     real = pn / 10
     print(f"\npredicted {pred.mean() * 100:+.2f}c/contract vs actual {real.mean() * 100:+.2f}c/contract")
