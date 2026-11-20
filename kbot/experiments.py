@@ -117,6 +117,61 @@ def add_delayed_labels(d, ws, delay=1):
     return out, ask_out
 
 
+def real_pnl(q, i, side, tp, sl, w, px, slip=0.01):
+    """P&L per contract when every fill must be confirmed by a real trade.
+
+    Entry: limit buy at ask + slip, filled only if this side traded at or
+    below it during the next minute (else 0.0: nothing happened). Exit: when
+    the quoted bid crosses +TP/-SL (or at the last minute), a limit sell at
+    bid - slip, filled only if this side traded at or above it in the minute
+    after; otherwise keep holding and retry; nothing filled = settlement."""
+    def side_rng(row):            # (low, high) traded price of OUR side in that minute
+        _, o, h, l, c, v = row
+        if not v or h is None or l is None:
+            return None
+        return (l, h) if side == "up" else (round(1 - h, 4), round(1 - l, 4))
+    yb, ya = q[i][1], q[i][2]
+    lim = (ya if side == "up" else round(1 - yb, 4)) + slip
+    r = px.get(q[i][0] + 60)
+    rng = side_rng(r) if r else None
+    if rng is None or rng[0] > lim:
+        return 0.0                                    # never filled
+    entry = lim
+    fee_in = taker_fee(min(entry, 0.99), QTY)
+    for j in range(i + 1, len(q)):
+        b = (q[j][1] if side == "up" else round(1 - q[j][2], 4)) - slip
+        if b >= entry + tp or b <= entry - sl or j == len(q) - 1:
+            r2 = px.get(q[j][0] + 60)
+            rng2 = side_rng(r2) if r2 else None
+            if rng2 is not None and rng2[1] >= b and b > 0:
+                return b - entry - fee_in - taker_fee(max(b, 0.01), QTY)
+    won = (side == "up") == (w.result == "yes")
+    return (1.0 if won else 0.0) - entry - fee_in
+
+
+def add_real_labels(d, ws):
+    from .data import MaxyClient, load_px
+    c = MaxyClient("BTC")
+    pos = {}
+    out = {k: np.full(len(d["W"]), np.nan) for k in KEYS}
+    have = 0
+    for n, (wi, t) in enumerate(zip(d["W"], d["T"])):
+        if wi not in pos:
+            rows = load_px(c, ws[wi].ticker)
+            q = quotes(ws[wi])
+            pos[wi] = (q, {qq[0]: j for j, qq in enumerate(q)},
+                       {int(r[0]): r for r in rows} if rows else None)
+        q, ix, px = pos[wi]
+        i = ix.get(int(t))
+        if i is None or px is None:
+            continue
+        have += 1
+        for k in KEYS:
+            s_, tp, sl = k.split("_")
+            out[k][n] = real_pnl(q, i, s_, float(tp), float(sl), ws[wi], px)
+    return out, have
+
+
 def add_trail_labels(d, ws, trail_mult=1.0):
     pos = {}
     out = {k: np.full(len(d["W"]), np.nan) for k in KEYS}
@@ -302,6 +357,20 @@ def main(argv=None):
                 al = {k: (e.ask(k.split("_")[0]) <= mx) for k in KEYS}
                 res[f"delay model m{m} <= {mx}"] = e.report(
                     f"trained on 1-min-late fills, m{m}, <= {mx * 100:.0f}c", *e.trade(pdl, Yd, m, al))
+    if run("real"):
+        Yr, have = add_real_labels(d, ws)
+        print(f"  real-fill labels for {have}/{len(d['W'])} entry moments (rest have no traded-price data yet)")
+        # only test windows that have traded-price data
+        for mx in (0.25, 1.0):
+            al = {k: (e.ask(k.split("_")[0]) <= mx) & ~np.isnan(Yr[k]) for k in KEYS}
+            res[f"real old-model <= {mx}"] = e.report(f"current model, real fills, <= {mx * 100:.0f}c",
+                                                      *e.trade(base, Yr, 0.01, al))
+        pr = e.walk(Yr, train_mask={k: ~np.isnan(Yr[k]) for k in KEYS})
+        for m in (0.005, 0.01, 0.02, 0.03):
+            for mx in (0.25, 1.0):
+                al = {k: (e.ask(k.split("_")[0]) <= mx) & ~np.isnan(Yr[k]) for k in KEYS}
+                res[f"real model m{m} <= {mx}"] = e.report(
+                    f"trained on REAL fills, m{m}, <= {mx * 100:.0f}c", *e.trade(pr, Yr, m, al))
     if run("hours"):
         hr = (d["T"] // 3600) % 24
         for lo, hi in ((8, 12), (8, 16), (12, 16)):

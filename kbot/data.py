@@ -237,6 +237,7 @@ class MaxyClient:
             cs = self._get(f"{KALSHI}/historical/markets/{m['ticker']}/candlesticks", cparams)
         else:
             cs = self._get(f"{KALSHI}/series/{self.series}/markets/{m['ticker']}/candlesticks", cparams)
+        save_px(self, m["ticker"], cs)
         quotes = []
         for c in cs.get("candlesticks") or []:
             yb, ya = c.get("yes_bid") or {}, c.get("yes_ask") or {}
@@ -312,3 +313,54 @@ def fetch_flow(client: "MaxyClient", w: "Window", bucket: int = 10, max_pages: i
     with gzip.open(flow_path(client, w.ticker), "wt") as fh:
         json.dump(rows, fh)
     return rows
+
+
+# ---- real traded prices per minute ------------------------------------------------
+def px_path(client: "MaxyClient", ticker: str) -> Path:
+    d = client.cache.parent / f"{client.coin}-px"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{ticker}.json.gz"
+
+
+def save_px(client, ticker, cs):
+    """[end_ts, open, high, low, close, volume] of YES trade prices per minute
+    (None when nothing traded). Unlike bid/ask candles, these all happened."""
+    rows = []
+    for c in cs.get("candlesticks") or []:
+        pr = c.get("price") or {}
+        g = lambda k: _f(pr.get(f"{k}_dollars", pr.get(k)))
+        vol = _f(c.get("volume_fp", c.get("volume"))) or 0.0
+        rows.append([int(c["end_period_ts"]), g("open"), g("high"), g("low"), g("close"), vol])
+    with gzip.open(px_path(client, ticker), "wt") as fh:
+        json.dump(rows, fh)
+    return rows
+
+
+def load_px(client, ticker):
+    p = px_path(client, ticker)
+    if not p.exists():
+        return None
+    try:
+        with gzip.open(p, "rt") as fh:
+            return json.load(fh)
+    except (OSError, EOFError, ValueError):
+        return None
+
+
+def fetch_px(client, w: "Window"):
+    """Download the traded-price candles for a cached window (one request)."""
+    got = load_px(client, w.ticker)
+    if got is not None:
+        return got
+    p = {"start_ts": w.open_ts, "end_ts": w.close_ts, "period_interval": 1}
+    old = w.close_ts < time.time() - 55 * 86400
+    urls = [f"{KALSHI}/historical/markets/{w.ticker}/candlesticks",
+            f"{KALSHI}/series/{client.series}/markets/{w.ticker}/candlesticks"]
+    for url in (urls if old else urls[::-1]):
+        try:
+            cs = client._get(url, p, retries=2)
+        except Exception:
+            continue
+        if cs.get("candlesticks"):
+            return save_px(client, w.ticker, cs)
+    return None
