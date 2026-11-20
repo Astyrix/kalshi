@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from .data import KALSHI, MaxyClient, _ts
-from .experiments import KEYS, Exp, dataset, quotes
+from .experiments import KEYS, Exp, add_delayed_labels, dataset, quotes
 from .strategy import taker_fee
 from .trader import QTY
 
@@ -69,12 +69,17 @@ def main(argv=None):
     ap.add_argument("--days", type=float, default=126)
     ap.add_argument("--margin", type=float, default=0.01)
     ap.add_argument("--max-price", type=float, default=0.25)
+    ap.add_argument("--delay", type=int, default=0, help="fill this many minutes after the decision "
+                    "(model trained on delayed fills)")
     a = ap.parse_args(argv)
     d, ws = dataset(a.days)
     e = Exp(d, d["n_windows"])
-    pred = e.walk(d["Y"])
+    Y = d["Y"]
+    if a.delay:
+        Y, _ = add_delayed_labels(d, ws, a.delay)
+    pred = e.walk(Y)
     allow = {k: e.ask(k.split("_")[0]) <= a.max_price for k in KEYS}
-    pnl, info = e.trade(pred, d["Y"], a.margin, allow)
+    pnl, info = e.trade(pred, Y, a.margin, allow)
     print(f"{len(pnl)} walk-forward trades (<= {a.max_price * 100:.0f}c, margin {a.margin}), "
           f"backtest P&L ${pnl.sum():.2f}; checking each against the trade tape...", flush=True)
     client = MaxyClient("BTC", min_interval=0.25)
@@ -86,7 +91,10 @@ def main(argv=None):
         qi = next((j for j, qq in enumerate(q) if qq[0] == t), None)
         side, tp, sl = k.split("_")
         tp, sl = float(tp), float(sl)
-        ask = float(e.ask(side)[i])
+        if qi is not None and a.delay:
+            qi += a.delay                       # the fill happens at this later minute
+            t = q[qi][0]
+        ask = float(q[qi][2] if side == "up" else 1 - q[qi][1]) if qi is not None else float(e.ask(side)[i])
         tr = tape(client, w.ticker, t, t + 30)
         if tr is None or qi is None:
             continue
@@ -139,8 +147,9 @@ def main(argv=None):
     for (band, ok), v in sorted(by.items()):
         print(f"    {band:7} {'fillable  ' if ok else 'NOT filled'}  {len(v):4d} trades  P&L ${sum(v):8.2f}")
     Path("reports").mkdir(exist_ok=True)
-    Path("reports/fill_check.json").write_text(json.dumps(R, indent=0))
-    print("\nsaved reports/fill_check.json")
+    out = f"reports/fill_check{'_delay' + str(a.delay) if a.delay else ''}.json"
+    Path(out).write_text(json.dumps(R, indent=0))
+    print(f"\nsaved {out}")
 
 
 if __name__ == "__main__":
