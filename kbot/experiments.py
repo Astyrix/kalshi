@@ -244,6 +244,18 @@ def main(argv=None):
             al = {k: e.ask(k.split("_")[0]) <= mx for k in KEYS}
             res[f"cheap<={mx}"] = e.report(f"only <= {mx * 100:.0f}c, margin 0.01", *e.trade(base, Y, 0.01, al))
         res["cheap m0.005"] = e.report("only <= 25c, margin 0.005", *e.trade(base, Y, 0.005, cheap))
+    if run("hours"):
+        hr = (d["T"] // 3600) % 24
+        for lo, hi in ((8, 12), (8, 16), (12, 16)):
+            al = {k: cheap[k] & ~((hr >= lo) & (hr < hi)) for k in KEYS}
+            res[f"skip {lo}-{hi}"] = e.report(f"<=25c, skip {lo:02d}-{hi:02d} UTC, m0.01", *e.trade(base, Y, 0.01, al))
+        # check the 08-12 hole on the TRAINING half too (not used to pick it)
+        tr = d["W"] < e.ts
+        print("  training-half check, avg 10-contract P&L of the best predicted setup by hour block:")
+        for lo in range(0, 24, 4):
+            m_ = tr & (hr >= lo) & (hr < lo + 4)
+            y = np.nanmax(np.vstack([Y[k][m_] for k in KEYS]), axis=0)
+            print(f"    {lo:02d}-{lo + 3:02d} UTC  hindsight-best avg ${np.nanmean(y) * QTY:+.3f}")
     Path("reports").mkdir(exist_ok=True)
     import json
     Path("reports/experiments.json").write_text(json.dumps(res, indent=1))

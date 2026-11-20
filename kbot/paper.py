@@ -93,6 +93,7 @@ class Paper:
         self.showing: dict[str, list] = {}
         self.shadows: list[dict] = []          # trailing-exit shadows still running
         self.record_ticks = True               # save the book every 5s for exit research
+        self.train_days = 365                  # daily retrain uses all cached history (up to a year)
         self.closed: list[dict] = []
         sp = state / "paper-summary.json"
         if sp.exists():
@@ -400,7 +401,7 @@ class Paper:
         if now.hour != self.retrain_hour or self._retrained_on == now.date():
             return
         self._retrained_on = now.date()
-        cmd = [sys.executable, "-m", "kbot.trader", "--days", "70", "--no-walk",
+        cmd = [sys.executable, "-m", "kbot.trader", "--days", str(self.train_days), "--no-walk",
                "--save-model", str(self.model_path.with_suffix(".new.pkl"))]
         if self.m.get("drop"):
             cmd += ["--drop", ",".join(self.m["drop"])]
