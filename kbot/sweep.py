@@ -29,14 +29,14 @@ VARIANTS = {
 }
 
 
-def load_cached(coin: str, days: float, cache="data/cache") -> list[Window]:
+def load_cached(coin: str, days: float, cache="data/cache", compact: bool = True) -> list[Window]:
     since = time.time() - days * 86400
     out = []
     for p in Path(cache, coin).glob("*.json.gz"):
         try:
             with gzip.open(p, "rt") as fh:
-                w = Window.from_json(json.load(fh))
-        except (OSError, EOFError, ValueError):
+                w = Window.from_json(json.load(fh), compact=compact)
+        except (OSError, EOFError, ValueError, TypeError):
             continue                     # partially written by a running download
         if w.close_ts >= since:
             out.append(w)

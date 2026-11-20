@@ -90,9 +90,15 @@ class Window:
         return self.__dict__
 
     @classmethod
-    def from_json(cls, d: dict) -> "Window":
+    def from_json(cls, d: dict, compact: bool = False) -> "Window":
+        """compact=True keeps the per-second index as an (n, 2) float array
+        (~7x less memory; needed to load a whole year at once)."""
         w = cls(**d)
-        w.index = [tuple(p) for p in w.index]
+        if compact:
+            import numpy as np
+            w.index = np.asarray(w.index, dtype=float).reshape(-1, 2)
+        else:
+            w.index = [tuple(p) for p in w.index]
         w.quotes = [tuple(q) for q in w.quotes]
         return w
 

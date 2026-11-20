@@ -37,24 +37,25 @@ class Series:
     """Per-second index values from stitched windows; NaN where missing."""
 
     def __init__(self, windows):
-        pts = {}
-        for w in windows:
-            for t, v in w.index:
-                pts[t] = v
-        ts = np.array(sorted(pts), dtype=np.int64)
-        self.t0 = int(ts[0])
-        self.v = np.full(int(ts[-1]) - self.t0 + 1, np.nan)
-        self.v[ts - self.t0] = [pts[t] for t in ts]
-        # forward-fill short gaps (a second or two of missing prints)
-        last = np.nan
-        miss = 0
-        for i in range(len(self.v)):
-            if np.isnan(self.v[i]):
-                miss += 1
-                if miss <= 5:
-                    self.v[i] = last
-            else:
-                last, miss = self.v[i], 0
+        arrs = [np.asarray(w.index, dtype=float).reshape(-1, 2) for w in windows if len(w.index)]
+        allp = np.concatenate(arrs) if arrs else np.zeros((1, 2))
+        ts = allp[:, 0].astype(np.int64)
+        self.t0 = int(ts.min())
+        self.v = np.full(int(ts.max()) - self.t0 + 1, np.nan)
+        self.v[ts - self.t0] = allp[:, 1]          # later windows overwrite overlaps
+        self._ffill(0)
+
+    def _ffill(self, lo, limit=5):
+        """Forward-fill gaps of up to `limit` seconds (a missing print or two)."""
+        v = self.v[lo:]
+        ok = ~np.isnan(v)
+        if ok.all() or not ok.any():
+            return
+        idx = np.where(ok, np.arange(len(v)), -1)
+        last = np.maximum.accumulate(idx)                  # index of last valid value
+        gap = np.arange(len(v)) - last
+        fill = (~ok) & (last >= 0) & (gap <= limit)
+        v[fill] = v[last[fill]]
 
     def extend(self, points):
         """Add live (ts, value) points, growing the array as needed."""
@@ -69,15 +70,7 @@ class Series:
             if i >= 0:
                 self.v[i] = v
         # forward-fill short gaps in the newly touched tail
-        lo = max(min(int(t) for t, _ in points) - self.t0, 1)
-        miss = 0
-        for i in range(lo, len(self.v)):
-            if np.isnan(self.v[i]):
-                miss += 1
-                if miss <= 5:
-                    self.v[i] = self.v[i - 1]
-            else:
-                miss = 0
+        self._ffill(max(min(int(t) for t, _ in points) - self.t0 - 6, 0))
 
     def upto(self, t: int, seconds: int) -> np.ndarray:
         """Values in (t - seconds, t]."""
