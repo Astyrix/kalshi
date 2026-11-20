@@ -150,7 +150,7 @@ def real_pnl(q, i, side, tp, sl, w, px, slip=0.01, fees=True):
     return (1.0 if won else 0.0) - entry - fee_in
 
 
-def maker_pnl(q, i, side, tp, sl, w, px, maker_rate=0.0175):
+def maker_pnl(q, i, side, tp, sl, w, px, maker_rate=0.0175, through=0.0):
     """Resting-order version, conservative about queue position.
 
     Entry: rest a buy at our side's best bid for one minute; filled only if
@@ -172,24 +172,26 @@ def maker_pnl(q, i, side, tp, sl, w, px, maker_rate=0.0175):
         return 0.0
     r = px.get(q[i][0] + 60)
     g = rng(r) if r else None
-    if g is None or not g[0] < bid:
+    if g is None or not g[0] < bid - through:
         return 0.0                                   # never filled
     entry = bid
     cost = mfee(entry)
     target = round(entry + tp, 4)
     for j in range(i + 1, len(q)):
-        r2 = px.get(q[j][0] + 60)          # trades during the minute after quote j
-        g2 = rng(r2) if r2 else None
-        if j > i and g2 is not None and g2[1] > target and target < 0.99:
-            return target - entry - cost - mfee(target)
+        # in time order: the quote at q[j] (stop check) comes before the trades
+        # in the minute after it (take-profit check)
         b = (q[j][1] if side == "up" else round(1 - q[j][2], 4)) - 0.01
         if b <= entry - sl and b > 0:
             return b - entry - cost - taker_fee(max(b, 0.01), QTY)
+        r2 = px.get(q[j][0] + 60)          # trades during the minute after quote j
+        g2 = rng(r2) if r2 else None
+        if g2 is not None and g2[1] > target + through and target < 0.99:
+            return target - entry - cost - mfee(target)
     won = (side == "up") == (w.result == "yes")
     return (1.0 if won else 0.0) - entry - cost
 
 
-def add_maker_labels(d, ws, maker_rate=0.0175):
+def add_maker_labels(d, ws, maker_rate=0.0175, through=0.0):
     from .data import MaxyClient, load_px
     c = MaxyClient("BTC")
     pos = {}
@@ -206,7 +208,7 @@ def add_maker_labels(d, ws, maker_rate=0.0175):
             continue
         for k in KEYS:
             s_, tp, sl = k.split("_")
-            out[k][n] = maker_pnl(q, i, s_, float(tp), float(sl), ws[wi], px, maker_rate)
+            out[k][n] = maker_pnl(q, i, s_, float(tp), float(sl), ws[wi], px, maker_rate, through)
     return out
 
 
@@ -445,14 +447,15 @@ def main(argv=None):
                     res[f"costs {label} m{m} <= {mx}"] = e.report(f"{label}, m{m}, <= {mx * 100:.0f}c",
                                                                  *e.trade(pc, Yc, m, al))
     if run("maker"):
-        for rate, label in ((0.0, "maker, no maker fee"), (0.0175, "maker, fee 1/4 of taker")):
-            Ym = add_maker_labels(d, ws, rate)
+        for rate, thr, label in ((0.0175, 0.0, "maker, fee 1/4 taker"),
+                                 (0.0175, 0.01, "maker, fee 1/4 taker, fill needs 1c through")):
+            Ym = add_maker_labels(d, ws, rate, thr)
             filled = {k: ~np.isnan(Ym[k]) & (Ym[k] != 0.0) for k in KEYS}
             print(f"  {label}: entry fills {np.mean(filled[KEYS[0]]):.1%} of moments (up_0.03_0.03)")
             ok = {k: ~np.isnan(Ym[k]) for k in KEYS}
             pm = e.walk(Ym, train_mask=ok)
-            for m in (0.0, 0.005, 0.01, 0.02):
-                for mx in (0.25, 1.0):
+            for m in (0.005, 0.01, 0.02):
+                for mx in (1.0,):
                     al = {k: (e.ask(k.split("_")[0]) <= mx) & ok[k] for k in KEYS}
                     pnl, info = e.trade(pm, Ym, m, al)
                     keep = [n for n, p in enumerate(pnl) if p != 0.0]       # orders that filled
