@@ -93,6 +93,14 @@ class Paper:
         self.showing: dict[str, list] = {}
         self.shadows: list[dict] = []          # trailing-exit shadows still running
         self.record_ticks = True               # save the book every 5s for exit research
+        # second strategy, no model: buy any side priced <= rule_cap with 2-3 min
+        # left and hold to settlement (backtest: +$1,465 over 12 months, 11/12 up)
+        self.rule_cap = 0.10
+        self.rule_open: list[dict] = []
+        self.rule_done: set[str] = set()
+        rp = self.state / "rule-open.json"
+        if rp.exists():
+            self.rule_open = json.loads(rp.read_text())
         self.train_days = 365                  # daily retrain uses all cached history (up to a year)
         self.closed: list[dict] = []
         sp = state / "paper-summary.json"
@@ -203,6 +211,44 @@ class Paper:
             fh.write(json.dumps([int(time.time()), book.yes_bid, book.yes_ask,
                                  round(book.yes_bid_top, 2), round(book.yes_ask_top, 2)]) + "\n")
 
+    # -- strategy 2: cheap late contracts, held to settlement -----------------------
+    def _rule_step(self, mk, T, close_ts, book, fh):
+        if not (close_ts - 180 <= T < close_ts - 120) or mk["ticker"] in self.rule_done:
+            return
+        self.rule_done.add(mk["ticker"])
+        for side in ("up", "dn"):
+            a = _ask(side, book.yes_bid, book.yes_ask)
+            if 0.005 < a <= self.rule_cap:
+                pos = {"ticker": mk["ticker"], "side": "UP" if side == "up" else "DOWN", "t": T,
+                       "ask": a, "entry": round(a + SLIP, 4), "qty": self.qty,
+                       "offered": book.top_ask_size("UP" if side == "up" else "DOWN")}
+                self.rule_open.append(pos)
+                _emit({"event": "RULE_FILL", **pos}, fh)
+        self._save_rule()
+
+    def _rule_settle(self, fh):
+        """Settle rule positions whose market has a result."""
+        keep = []
+        for pos in self.rule_open:
+            if pos["ticker"] == getattr(self, "_cur_ticker", None):
+                keep.append(pos)
+                continue
+            m = self.client.market(pos["ticker"]) or {}
+            if m.get("result") not in ("yes", "no"):
+                keep.append(pos)
+                continue
+            won = (pos["side"] == "UP") == (m["result"] == "yes")
+            pnl = ((1.0 if won else 0.0) - pos["entry"] - taker_fee(min(pos["entry"], .99), pos["qty"])) * pos["qty"]
+            rec = {"event": "RULE_SETTLED", **pos, "won": won, "pnl_usd": round(pnl, 2)}
+            with open(self.reports / "paper_rule_trades.jsonl", "a") as th:
+                th.write(json.dumps(rec) + "\n")
+            _emit(rec, fh)
+        self.rule_open = keep
+        self._save_rule()
+
+    def _save_rule(self):
+        (self.state / "rule-open.json").write_text(json.dumps(self.rule_open))
+
     @staticmethod
     def _pnl_usd(p, px):
         c = px - p.entry - taker_fee(min(p.entry, 0.99), p.qty) - taker_fee(max(px, 0.01), p.qty)
@@ -299,6 +345,8 @@ class Paper:
                 self._decision(fh, T, mk, "EXIT_NOW", p.side, None, b, p, why, active)
             else:
                 self._decision(fh, T, mk, "WAIT_FOR_BETTER_EXIT", p.side, None, b, p, "holding", active)
+
+        self._rule_step(mk, T, close_ts, book, fh)
 
         q = self._quotes(mk, T, book)
         f = features(self.ctx, w, t, q, None) if len(q) >= 4 else None
@@ -494,6 +542,11 @@ class Paper:
                         if mk is not None and not self._settle_leftovers(mk, fh):
                             pass                              # try again next minute
                         mk = self.client.current_market()
+                        self._cur_ticker = mk["ticker"]
+                        try:
+                            self._rule_settle(fh)
+                        except Exception:
+                            pass
                         try:
                             self._cache_recent()
                         except Exception:
@@ -514,8 +567,24 @@ class Paper:
             self._summary()
 
 
+def rule_report(reports=Path("reports")):
+    p = reports / "paper_rule_trades.jsonl"
+    if not p.exists():
+        print("RULE (<=10c, 2-3 min left, hold): no settled trades yet")
+        return
+    rs = [json.loads(l) for l in p.read_text().splitlines()]
+    v = np.array([r["pnl_usd"] for r in rs])
+    print(f"RULE (<=10c, 2-3 min left, hold to settlement): {len(rs)} trades  P&L ${v.sum():.2f}  "
+          f"win {np.mean(v > 0):.1%}  (backtest: win ~10%, avg +$0.375/trade)")
+    for side in ("UP", "DOWN"):
+        w = np.array([r["pnl_usd"] for r in rs if r["side"] == side])
+        if len(w):
+            print(f"  {side:5} {len(w):4d} trades  P&L ${w.sum():8.2f}  win {np.mean(w > 0):.1%}")
+
+
 def report(state=Path("state")):
     """Paper results so far: totals, by price bucket, by setup, by pattern."""
+    rule_report()
     sp = state / "paper-summary.json"
     if not sp.exists():
         print("no paper trades yet")
