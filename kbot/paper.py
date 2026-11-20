@@ -165,6 +165,7 @@ class Paper:
         self.positions.remove(p)
         self.mem.record_trade(p.patterns, pnl_c)
         rec = {"event": "PAPER_EXIT", "ticker": p.ticker, "side": "UP" if p.side == "up" else "DOWN",
+               "entry_ts": p.t,
                "entry": p.entry, "exit": px, "why": why, "tp": p.tp, "sl": p.sl,
                "pnl_usd": round(pnl_c * p.qty, 2), "held_s": int(time.time()) - p.t,
                "patterns_at_entry": p.patterns[:8], "predicted_pnl_c": round(p.predicted, 4),
@@ -222,6 +223,20 @@ class Paper:
              "open": [p.__dict__ for p in self.positions]}
         (self.state / "paper-summary.json").write_text(json.dumps(d, indent=1))
         return d
+
+    def _brake(self, T, max_per_day=30, lookback=30, floor=-30.0):
+        """Pause new entries when trading runs away: more than max_per_day entries
+        in 24 h, or the last `lookback` closed trades lost more than $-floor.
+        (In the history test this cut a bad month's loss by 40% at almost no
+        cost in good months.)"""
+        entries = [r for r in self.closed if r.get("entry_ts", 0) > T - 86400]
+        n24 = len(entries) + len(self.positions)
+        if n24 >= max_per_day:
+            return f"{n24} entries in the last 24h"
+        last = [r["pnl_usd"] for r in self.closed[-lookback:]]
+        if len(last) >= lookback and sum(last) < floor:
+            return f"last {lookback} trades lost ${-sum(last):.2f}"
+        return None
 
     def _mistake_note(self):
         losses = [r for r in self.closed[-20:] if r["pnl_usd"] < 0]
@@ -305,6 +320,9 @@ class Paper:
         side, tp, sl = best_k.split("_")
         tp, sl = float(tp), float(sl)
         can_enter = (T <= close_ts - 120 and T > self.last_entry.get(mk["ticker"], 0) + 300)
+        braked = self._brake(T)
+        if braked:
+            can_enter = False
         info = {"pred": pred, "p_up": p_up, "f": f, "best": (best_k, best_v)}
         if can_enter and best_v > self.margin:
             a = _ask(side, book.yes_bid, book.yes_ask) + SLIP
@@ -317,7 +335,8 @@ class Paper:
                    "qty": p.qty, "offered_at_best_ask": p.top_size, "take_profit_bid": round(p.entry + tp, 4),
                    "stop_loss_bid": round(max(p.entry - sl, 0.01), 4)}, fh)
         elif not [p for p in self.positions if p.ticker == mk["ticker"]]:
-            why = ("no entries in the last 2 minutes" if T > close_ts - 120 else
+            why = (f"brake on: {braked}" if braked else
+                   "no entries in the last 2 minutes" if T > close_ts - 120 else
                    "waiting 5 min after last entry" if not can_enter else
                    f"neither side is priced at or under {self.max_price * 100:.0f}c" if not cheap_ok else
                    f"best predicted edge {best_v * 100:+.1f}c/contract is under the {self.margin * 100:.0f}c margin")

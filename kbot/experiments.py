@@ -137,9 +137,16 @@ class Exp:
                 pred[k][te] = np.mean(ps, axis=0)
         return pred
 
-    def trade(self, pred, Y, margin=0.02, allow=None):
-        """Same rule as trader.py: best pair above margin, no new entry for 5 min."""
+    def trade(self, pred, Y, margin=0.02, allow=None, brake=None):
+        """Same rule as trader.py: best pair above margin, no new entry for 5 min.
+
+        brake = (max_trades_per_24h, lookback_trades, min_lookback_pnl): pause
+        new entries while more than max trades happened in the last 24 h, or
+        while the last `lookback` trades lost more than `min_lookback_pnl`
+        dollars (only trades that have already closed count; positions close
+        within the 15-minute window)."""
         pnl, info = [], []
+        recent_t: list[int] = []
         by_w = defaultdict(list)
         for i in np.where(self.W >= self.ts)[0]:
             by_w[self.W[i]].append(i)
@@ -153,6 +160,15 @@ class Exp:
                     continue
                 k, v = max(cands, key=lambda kv: kv[1])
                 if v > margin and not math.isnan(Y[k][i]):
+                    t = int(self.d["T"][i])
+                    if brake:
+                        mx, lb, floor = brake
+                        n24 = sum(1 for x in recent_t if x > t - 86400)
+                        # P&L of the last `lb` trades that closed (entered >= 15 min ago)
+                        closed = [p for (j, _), p in zip(info, pnl) if self.d["T"][j] <= t - 900][-lb:]
+                        if n24 >= mx or (len(closed) >= lb and sum(closed) < floor):
+                            continue
+                    recent_t.append(t)
                     pnl.append(Y[k][i] * QTY)
                     info.append((i, k))
                     busy = self.d["T"][i] + 300

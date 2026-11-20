@@ -28,6 +28,7 @@ from .experiments import KEYS, Exp, dataset
 
 RULES = {
     "live: <=25c, margin 1c": dict(max_price=0.25, margin=0.01),
+    "live + brake (30/day, pause if last 30 lose > $30)": dict(max_price=0.25, margin=0.01, brake=(30, 30, -30.0)),
     "<=25c, margin 2c": dict(max_price=0.25, margin=0.02),
     "any price, margin 1c": dict(max_price=1.0, margin=0.01),
     "any price, margin 2c": dict(max_price=1.0, margin=0.02),
@@ -65,7 +66,7 @@ def main(argv=None):
     out = {"months": months, "test_months": test_months, "rules": {}}
     for name, r in RULES.items():
         allow = {k: e.ask(k.split("_")[0]) <= r["max_price"] for k in KEYS}
-        pnl, info = e.trade(pred, d["Y"], r["margin"], allow)
+        pnl, info = e.trade(pred, d["Y"], r["margin"], allow, r.get("brake"))
         by_m = defaultdict(list)
         for (i, k), p in zip(info, pnl):
             by_m[month_of(d["T"][i])].append(p)
