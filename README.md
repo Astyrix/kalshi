@@ -95,6 +95,13 @@ sell, maker fee 1/4 of taker) show +$165 when a fill only needs a trade
 below our price, but about $0 once the price must trade 1c through our
 level - the profit depends on queue position this bot would not have.
 
+Other coins (`python -m kbot.calibration --coins BTC,ETH,SOL,XRP --days 30`):
+a model-free check of every minute's ask against how often that side won,
+after ask + 1c and fees, finds no price / time-left bucket with an edge for
+any of BTC, ETH, SOL or XRP (last 30 days, ~2,800 markets each, 1c median
+spread). Buying and holding loses 0-7c per contract almost everywhere; the
+few slightly positive buckets are within noise (|z| < 1).
+
 What still holds: real trades at or better than the 1-minute quote happen
 within 2 seconds (`python -m kbot.fill_check --any-side --window 2`; queries
 over 30-60 s miss this because the trade API returns only the newest 1000
