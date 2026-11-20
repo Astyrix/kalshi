@@ -75,8 +75,10 @@ def dataset(days):
     if p.exists():
         with open(p, "rb") as fh:
             d = pickle.load(fh)
-        if d["n_windows"] == len(ws):
-            return d, ws
+        # reuse it unless much more history has arrived (live trading adds a few
+        # markets an hour; rebuilding takes minutes). Only the trail test needs ws.
+        if d["n_windows"] == len(ws) or (d.get("fresh") is not True and 0 <= len(ws) - d["n_windows"] < 500):
+            return d, ws[:d["n_windows"]]
     series = Series(ws)
     ctx = Context(ws, series)
     rows = build(ws, ctx, MaxyClient("BTC"))
@@ -180,7 +182,7 @@ def main(argv=None):
     run = lambda n: not only or n in only
     t0 = time.time()
     d, ws = dataset(a.days)
-    e = Exp(d, len(ws))
+    e = Exp(d, d["n_windows"])
     Y = d["Y"]
     print(f"{len(d['W'])} entry moments, {len(e.cols)} features, test from window {e.ts} "
           f"[{time.time() - t0:.0f}s]\n", flush=True)
