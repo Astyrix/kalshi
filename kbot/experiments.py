@@ -29,7 +29,7 @@ from .data import MaxyClient
 from .patterns import Series
 from .strategy import taker_fee
 from .sweep import load_cached
-from .trader import BARRIERS, QTY, Context, barrier_pnl, build, lean_ok, lgb_reg
+from .trader import BARRIERS, QTY, Context, barrier_pnl, build_arrays, lean_ok, lgb_reg
 
 KEYS = [f"{s}_{tp}_{sl}" for s in ("up", "dn") for tp, sl in BARRIERS]
 
@@ -83,13 +83,8 @@ def dataset(days):
                 return d, [by_t[t] for t in d["tickers"]]
     series = Series(ws)
     ctx = Context(ws, series)
-    rows = build(ws, ctx, MaxyClient("BTC"))
-    names = sorted({k for r in rows for k in r["f"]})
-    d = {"n_windows": len(ws), "names": names, "tickers": [w.ticker for w in ws],
-         "X": np.array([[r["f"].get(n, np.nan) for n in names] for r in rows], dtype=np.float32),
-         "W": np.array([r["w"] for r in rows]), "T": np.array([r["t"] for r in rows]),
-         "B": np.array([r["q"][0] for r in rows]), "A": np.array([r["q"][1] for r in rows]),
-         "Y": {k: np.array([r["y"].get(k, np.nan) for r in rows]) for k in KEYS + ["idx_barrier"]}}
+    d = build_arrays(ws, ctx, MaxyClient("BTC"))
+    d.update(n_windows=len(ws), tickers=[w.ticker for w in ws])
     with open(p, "wb") as fh:
         pickle.dump(d, fh)
     return d, ws

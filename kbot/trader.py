@@ -291,6 +291,37 @@ def build(windows, ctx, client):
     return rows
 
 
+def build_arrays(windows, ctx, client, keep=None):
+    """Same rows as build(), but streamed into float32 arrays as they are made
+    (a year of rows as dicts needs ~8 GB; this needs well under 1 GB).
+    keep(name) -> bool optionally drops feature columns early."""
+    col: dict[str, int] = {}
+    parts, W, T, B, A = [], [], [], [], []
+    Y = defaultdict(list)
+    for wi, w in enumerate(windows):
+        if w.result not in ("yes", "no"):
+            continue
+        for r in build([w], ctx, client):
+            ids, vals = [], []
+            for k, v in r["f"].items():
+                if keep is not None and not keep(k):
+                    continue
+                j = col.setdefault(k, len(col))
+                ids.append(j)
+                vals.append(v)
+            parts.append((np.array(ids, dtype=np.int32), np.array(vals, dtype=np.float32)))
+            W.append(wi); T.append(r["t"]); B.append(r["q"][0]); A.append(r["q"][1])
+            for k in [f"{s_}_{tp}_{sl}" for s_ in ("up", "dn") for tp, sl in BARRIERS] + ["idx_barrier"]:
+                Y[k].append(r["y"].get(k, np.nan))
+    names = sorted(col, key=col.get)
+    X = np.full((len(parts), len(names)), np.nan, dtype=np.float32)
+    for n, (ids, vals) in enumerate(parts):
+        X[n, ids] = vals
+    order = np.argsort(names)
+    return {"names": [names[i] for i in order], "X": X[:, order], "W": np.array(W), "T": np.array(T),
+            "B": np.array(B), "A": np.array(A), "Y": {k: np.array(v, dtype=float) for k, v in Y.items()}}
+
+
 def lgb_reg(X, y, seed=0):
     import lightgbm as lgb
     ok = ~np.isnan(y)
@@ -352,16 +383,15 @@ def main(argv=None):
     series = Series(ws)
     ctx = Context(ws, series)
     print(f"{len(ws)} windows; building day-trader features...", flush=True)
-    rows = build(ws, ctx, client)
-    names = sorted({k for r in rows for k in r["f"] if k.split("__")[0] not in drop
-                    and not (a.lean_candles and not lean_ok(k))})
-    X = np.array([[r["f"].get(n, np.nan) for n in names] for r in rows], dtype=float)
-    W = np.array([r["w"] for r in rows])
+    keep = lambda k: k.split("__")[0] not in drop and not (a.lean_candles and not lean_ok(k))
+    D = build_arrays(ws, ctx, client, keep)
+    names, X, W = D["names"], D["X"].astype(float), D["W"]
+    rows = [{"w": int(w_), "t": int(t_), "q": (b_, a_)} for w_, t_, b_, a_ in zip(W, D["T"], D["B"], D["A"])]
     print(f"{len(rows)} entry moments, {len(names)} features [{time.time() - t0:.0f}s]", flush=True)
     for g in GROUPS:
         print(f"  {g:9} {sum(n.startswith(g + '__') for n in names):3d} features")
     keys = [f"{s}_{tp}_{sl}" for s in ("up", "dn") for tp, sl in BARRIERS]
-    Y = {k: np.array([r["y"].get(k, np.nan) for r in rows]) for k in keys + ["idx_barrier"]}
+    Y = D["Y"]
 
     def walk(cols, which=keys):
         Xs = X[:, cols]
