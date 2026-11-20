@@ -70,11 +70,12 @@ def _emit(d, fh):
 
 class Paper:
     def __init__(self, model_path="state/trader-model.pkl", margin=0.02, qty=10, days=35,
-                 state=Path("state"), reports=Path("reports"), rate=0.3, retrain_hour=6):
+                 state=Path("state"), reports=Path("reports"), rate=0.3, retrain_hour=6, max_price=0.25):
         with open(model_path, "rb") as fh:
             self.m = pickle.load(fh)
         self.names = self.m["names"]
         self.margin, self.qty = margin, qty
+        self.max_price = max_price          # only buy contracts at or under this ask
         self.client = MaxyClient("BTC", min_interval=rate)
         self.reports = reports
         reports.mkdir(exist_ok=True)
@@ -238,7 +239,13 @@ class Paper:
         x = np.array([[f.get(n, np.nan) for n in self.names]], dtype=float)
         pred = {k: float(mdl.predict(x)[0]) for k, mdl in self.m["models"].items()}
         p_up = float(self.m["idx_clf"].predict_proba(x)[0, 1])
-        best_k, best_v = max(pred.items(), key=lambda kv: kv[1])
+        # only setups whose side is cheap enough (the backtest's profit came from <=25c)
+        ok = {k: v for k, v in pred.items()
+              if _ask(k.split("_")[0], book.yes_bid, book.yes_ask) <= self.max_price} or pred
+        cheap_ok = any(_ask(k.split("_")[0], book.yes_bid, book.yes_ask) <= self.max_price for k in pred)
+        best_k, best_v = max(ok.items(), key=lambda kv: kv[1])
+        if not cheap_ok:
+            best_v = min(best_v, -1.0)               # nothing cheap: never enter
         side, tp, sl = best_k.split("_")
         tp, sl = float(tp), float(sl)
         can_enter = (T <= close_ts - 120 and T > self.last_entry.get(mk["ticker"], 0) + 300)
@@ -255,6 +262,7 @@ class Paper:
         elif not [p for p in self.positions if p.ticker == mk["ticker"]]:
             why = ("no entries in the last 2 minutes" if T > close_ts - 120 else
                    "waiting 5 min after last entry" if not can_enter else
+                   f"neither side is priced at or under {self.max_price * 100:.0f}c" if not cheap_ok else
                    f"best predicted edge {best_v * 100:+.1f}c/contract is under the {self.margin * 100:.0f}c margin")
             self._decision(fh, T, mk, "WAIT_FOR_BETTER_ENTRY", side, info, None, None, why, active)
 

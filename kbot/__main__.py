@@ -44,9 +44,10 @@ def main(argv=None):
 
     pp = sub.add_parser("paper", help="paper-trade with the day-trader model (kbot/paper.py)")
     pp.add_argument("--model", default="state/trader-model.pkl")
-    pp.add_argument("--margin", type=float, default=0.02, help="min predicted profit per contract to enter")
+    pp.add_argument("--margin", type=float, default=0.01, help="min predicted profit per contract to enter")
     pp.add_argument("--minutes", type=int, help="stop after this many minutes")
     pp.add_argument("--history-days", type=float, default=35)
+    pp.add_argument("--max-price", type=float, default=0.25, help="only buy contracts at or under this ask")
     pp.add_argument("--retrain-hour", type=int, default=6, help="UTC hour to retrain daily (-1 = never)")
     sub.add_parser("paper-report", help="summarize paper trades and the live pattern scoreboard")
 
@@ -54,7 +55,7 @@ def main(argv=None):
     if a.cmd == "paper":
         from .paper import Paper
         Paper(a.model, a.margin, a.qty, a.history_days, Path(a.state), Path("reports"), a.rate,
-              None if a.retrain_hour < 0 else a.retrain_hour).run(a.minutes)
+              None if a.retrain_hour < 0 else a.retrain_hour, a.max_price).run(a.minutes)
         return
     if a.cmd == "paper-report":
         from .paper import report
