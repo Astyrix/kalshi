@@ -87,6 +87,14 @@ fees, and the few trades it takes break even. Cheap contracts in the last
 minutes win at about their price (about 3.5% won at about 3.4c with 2
 minutes left). Live paper trading agrees (29 trades, 3 wins, about -$2.70).
 
+Costs decide it (`python -m kbot.experiments --days 346 --only costs,maker`,
+last ~5.5 months, walk-forward): filling exactly at the quote with fees gives
+a thin +$192 (0.4c per contract, 16 of 25 weeks up); with no fees at all,
++$1,143. Resting maker orders (buy at our bid, take profit with a resting
+sell, maker fee 1/4 of taker) show +$165 when a fill only needs a trade
+below our price, but about $0 once the price must trade 1c through our
+level - the profit depends on queue position this bot would not have.
+
 What still holds: real trades at or better than the 1-minute quote happen
 within 2 seconds (`python -m kbot.fill_check --any-side --window 2`; queries
 over 30-60 s miss this because the trade API returns only the newest 1000
