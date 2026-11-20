@@ -69,6 +69,10 @@ def main(argv=None):
     ap.add_argument("--days", type=float, default=126)
     ap.add_argument("--margin", type=float, default=0.01)
     ap.add_argument("--max-price", type=float, default=0.25)
+    ap.add_argument("--any-side", action="store_true",
+                    help="count a trade by either side as proof of a fill (a limit order is filled "
+                         "by sellers hitting it too), not only takers on our side")
+    ap.add_argument("--window", type=int, default=30, help="seconds after the decision to look for trades")
     ap.add_argument("--delay", type=int, default=0, help="fill this many minutes after the decision "
                     "(model trained on delayed fills)")
     a = ap.parse_args(argv)
@@ -95,19 +99,20 @@ def main(argv=None):
             qi += a.delay                       # the fill happens at this later minute
             t = q[qi][0]
         ask = float(q[qi][2] if side == "up" else 1 - q[qi][1]) if qi is not None else float(e.ask(side)[i])
-        tr = tape(client, w.ticker, t, t + 30)
+        tr = tape(client, w.ticker, t, t + a.window)
         if tr is None or qi is None:
             continue
-        buys = [side_price(x, side) for x in tr if x.get("taker_side") == ("yes" if side == "up" else "no")]
+        buys = [side_price(x, side) for x in tr
+                if a.any_side or x.get("taker_side") == ("yes" if side == "up" else "no")]
         entry_ok = any(px <= ask + 0.01 for px in buys)
         j, raw = exit_of(q, qi, side, tp, sl)
         exit_ok, exit_real = None, None
         if j is not None:
             te = q[j][0]
-            tr2 = tape(client, w.ticker, te, te + 30)
+            tr2 = tape(client, w.ticker, te, te + a.window)
             if tr2 is not None:
                 sells = [side_price(x, side) for x in tr2
-                         if x.get("taker_side") == ("no" if side == "up" else "yes")]
+                         if a.any_side or x.get("taker_side") == ("no" if side == "up" else "yes")]
                 exit_ok = any(px >= raw - 0.01 for px in sells)
                 exit_real = max(sells) if sells else None
         won = (w.result == "yes") == (side == "up")
@@ -147,7 +152,8 @@ def main(argv=None):
     for (band, ok), v in sorted(by.items()):
         print(f"    {band:7} {'fillable  ' if ok else 'NOT filled'}  {len(v):4d} trades  P&L ${sum(v):8.2f}")
     Path("reports").mkdir(exist_ok=True)
-    out = f"reports/fill_check{'_delay' + str(a.delay) if a.delay else ''}.json"
+    out = (f"reports/fill_check{'_delay' + str(a.delay) if a.delay else ''}"
+           f"{'_any' if a.any_side else ''}{'_w' + str(a.window) if a.window != 30 else ''}.json")
     Path(out).write_text(json.dumps(R, indent=0))
     print(f"\nsaved {out}")
 
