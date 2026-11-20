@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .experiments import KEYS, Exp, dataset
+from .experiments import KEYS, Exp, add_real_labels, dataset
 
 RULES = {
     "live: <=25c, margin 1c": dict(max_price=0.25, margin=0.01),
@@ -44,6 +44,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=float, default=0, help="0 = everything cached")
     ap.add_argument("--train-months", type=int, default=2)
+    ap.add_argument("--quote-fills", action="store_true",
+                    help="old scoring: fill at the 1-minute quote without checking real trades")
     a = ap.parse_args(argv)
     t0 = time.time()
     days = a.days or (time.time() - 1765411200) / 86400 + 2      # series starts 2025-12-11
@@ -61,12 +63,18 @@ def main(argv=None):
           f"[{time.time() - t0:.0f}s]\n", flush=True)
     e = Exp(d, n)
     e.edges, e.ts = edges, edges[0]
-    pred = e.walk(d["Y"])
+    Y = d["Y"]
+    if not a.quote_fills:
+        Y, have = add_real_labels(d, ws[:n])
+        print(f"real-fill outcomes for {have}/{len(d['W'])} entry moments "
+              f"(fills must match a real trade in the next minute)", flush=True)
+        ok = {k: ~np.isnan(Y[k]) for k in KEYS}
+    pred = e.walk(Y, train_mask=None if a.quote_fills else ok)
     print(f"models trained [{time.time() - t0:.0f}s]\n")
     out = {"months": months, "test_months": test_months, "rules": {}}
     for name, r in RULES.items():
-        allow = {k: e.ask(k.split("_")[0]) <= r["max_price"] for k in KEYS}
-        pnl, info = e.trade(pred, d["Y"], r["margin"], allow, r.get("brake"))
+        allow = {k: (e.ask(k.split("_")[0]) <= r["max_price"]) & ~np.isnan(Y[k]) for k in KEYS}
+        pnl, info = e.trade(pred, Y, r["margin"], allow, r.get("brake"))
         by_m = defaultdict(list)
         for (i, k), p in zip(info, pnl):
             by_m[month_of(d["T"][i])].append(p)
