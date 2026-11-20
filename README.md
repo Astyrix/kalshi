@@ -40,7 +40,7 @@ Downloaded history is cached in `data/cache/` so each window downloads once.
 
 ```bash
 # train the live model on everything cached (about 5 minutes)
-python -m kbot.trader --days 70 --drop flow,calendar --lean-candles --save-model state/trader-model.pkl --no-walk
+python -m kbot.trader --days 365 --drop flow,calendar --lean-candles --real-fills --save-model state/trader-model.pkl --no-walk
 # paper-trade live: once a minute, only contracts at or under 25c, 1c minimum predicted edge
 python -m kbot paper --margin 0.01 --max-price 0.25
 python -m kbot paper-report                 # results, by price / exit / setup / pattern
@@ -71,6 +71,30 @@ What the tests found (walk-forward, ~5 weeks out of sample, 10 contracts):
   and skipping 40-60c contracts did not help reliably.
 - Run-to-run noise is about +/-$40, so compare ideas within one run
   (`python -m kbot.experiments`).
+
+### 10-month paper trade (Feb-Nov 2026, real-trade fills)
+
+`python -m kbot.history_paper` retrains before each month on earlier months
+only, then trades the month with the live rules. A fill counts only if a
+real trade happened at that price (`--real-fills` labels from the per-minute
+traded-price candles); 10 contracts, Kalshi fees both ways.
+
+| Rules | Trades | P&L | Months positive | Worst drawdown | Without 10 best |
+|---|---|---|---|---|---|
+| <=25c, 1c edge (live) | 830 | +$304 | 9/10 | $25 | +$218 |
+| any price, 1c edge | 866 | +$289 | 8/10 | $30 | +$203 |
+| <=25c, 2c edge | 276 | +$146 | 6/10 | $14 | +$62 |
+
+Most profit is the DOWN side (685 trades, +$265) and contracts under 10c
+(+$286). Higher predicted edge goes with higher realized P&L. Fill check
+(`python -m kbot.fill_check --any-side --window 2`): for every one of 842
+walk-forward trades, real trades at or better than the backtest's price
+happened within 2 seconds, for entries and exits. (Queries over 30-60 s
+miss this: the trade API returns only the newest 1000 trades, which in the
+final minutes cover just the last few seconds of the window.)
+
+Not yet proven: that a bot reacts within ~2 s every time, queue position at
+larger sizes, and live paper results (still a small sample).
 
 Patterns (`python -m kbot.pattern_study`): on the MaxyCharts index, 1-minute
 patterns look predictive, but that index lags Coinbase spot by about 30 s, so
