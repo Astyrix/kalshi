@@ -117,7 +117,7 @@ def add_delayed_labels(d, ws, delay=1):
     return out, ask_out
 
 
-def real_pnl(q, i, side, tp, sl, w, px, slip=0.01):
+def real_pnl(q, i, side, tp, sl, w, px, slip=0.01, fees=True):
     """P&L per contract when every fill must be confirmed by a real trade.
 
     Entry: limit buy at ask + slip, filled only if this side traded at or
@@ -137,19 +137,20 @@ def real_pnl(q, i, side, tp, sl, w, px, slip=0.01):
     if rng is None or rng[0] > lim:
         return 0.0                                    # never filled
     entry = lim
-    fee_in = taker_fee(min(entry, 0.99), QTY)
+    fee = (lambda x: taker_fee(x, QTY)) if fees else (lambda x: 0.0)
+    fee_in = fee(min(entry, 0.99))
     for j in range(i + 1, len(q)):
         b = (q[j][1] if side == "up" else round(1 - q[j][2], 4)) - slip
         if b >= entry + tp or b <= entry - sl or j == len(q) - 1:
             r2 = px.get(q[j][0] + 60)
             rng2 = side_rng(r2) if r2 else None
             if rng2 is not None and rng2[1] >= b and b > 0:
-                return b - entry - fee_in - taker_fee(max(b, 0.01), QTY)
+                return b - entry - fee_in - fee(max(b, 0.01))
     won = (side == "up") == (w.result == "yes")
     return (1.0 if won else 0.0) - entry - fee_in
 
 
-def add_real_labels(d, ws):
+def add_real_labels(d, ws, slip=0.01, fees=True):
     from .data import MaxyClient, load_px
     c = MaxyClient("BTC")
     pos = {}
@@ -168,7 +169,7 @@ def add_real_labels(d, ws):
         have += 1
         for k in KEYS:
             s_, tp, sl = k.split("_")
-            out[k][n] = real_pnl(q, i, s_, float(tp), float(sl), ws[wi], px)
+            out[k][n] = real_pnl(q, i, s_, float(tp), float(sl), ws[wi], px, slip, fees)
     return out, have
 
 
@@ -371,6 +372,18 @@ def main(argv=None):
                 al = {k: (e.ask(k.split("_")[0]) <= mx) & ~np.isnan(Yr[k]) for k in KEYS}
                 res[f"real model m{m} <= {mx}"] = e.report(
                     f"trained on REAL fills, m{m}, <= {mx * 100:.0f}c", *e.trade(pr, Yr, m, al))
+    if run("costs"):
+        # how much do costs decide it? same walk-forward, cheaper fills
+        for slip, fees, label in ((0.01, True, "ask+1c / bid-1c + fees"), (0.0, True, "at ask / bid + fees"),
+                                  (0.0, False, "at ask / bid, no fees")):
+            Yc, _ = add_real_labels(d, ws, slip, fees)
+            ok = {k: ~np.isnan(Yc[k]) for k in KEYS}
+            pc = e.walk(Yc, train_mask=ok)
+            for m in (0.0, 0.005, 0.01):
+                for mx in (0.25, 1.0):
+                    al = {k: (e.ask(k.split("_")[0]) <= mx) & ok[k] for k in KEYS}
+                    res[f"costs {label} m{m} <= {mx}"] = e.report(f"{label}, m{m}, <= {mx * 100:.0f}c",
+                                                                 *e.trade(pc, Yc, m, al))
     if run("hours"):
         hr = (d["T"] // 3600) % 24
         for lo, hi in ((8, 12), (8, 16), (12, 16)):
