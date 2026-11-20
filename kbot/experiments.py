@@ -76,14 +76,16 @@ def dataset(days):
         with open(p, "rb") as fh:
             d = pickle.load(fh)
         # reuse it unless much more history has arrived (live trading adds a few
-        # markets an hour; rebuilding takes minutes). Only the trail test needs ws.
-        if d["n_windows"] == len(ws) or (d.get("fresh") is not True and 0 <= len(ws) - d["n_windows"] < 500):
-            return d, ws[:d["n_windows"]]
+        # markets an hour; rebuilding takes minutes). Markets are matched by ticker.
+        if "tickers" in d and 0 <= len(ws) - d["n_windows"] < 500:
+            by_t = {w.ticker: w for w in ws}
+            if all(t in by_t for t in d["tickers"]):
+                return d, [by_t[t] for t in d["tickers"]]
     series = Series(ws)
     ctx = Context(ws, series)
     rows = build(ws, ctx, MaxyClient("BTC"))
     names = sorted({k for r in rows for k in r["f"]})
-    d = {"n_windows": len(ws), "names": names,
+    d = {"n_windows": len(ws), "names": names, "tickers": [w.ticker for w in ws],
          "X": np.array([[r["f"].get(n, np.nan) for n in names] for r in rows], dtype=np.float32),
          "W": np.array([r["w"] for r in rows]), "T": np.array([r["t"] for r in rows]),
          "B": np.array([r["q"][0] for r in rows]), "A": np.array([r["q"][1] for r in rows]),
