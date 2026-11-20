@@ -291,12 +291,12 @@ def build(windows, ctx, client):
     return rows
 
 
-def lgb_reg(X, y):
+def lgb_reg(X, y, seed=0):
     import lightgbm as lgb
     ok = ~np.isnan(y)
     m = lgb.LGBMRegressor(n_estimators=250, learning_rate=0.03, num_leaves=15, min_child_samples=100,
                           subsample=0.8, subsample_freq=1, colsample_bytree=0.6, reg_lambda=3.0,
-                          random_state=0, verbose=-1)
+                          random_state=seed, verbose=-1)
     return m.fit(X[ok], y[ok])
 
 

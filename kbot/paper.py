@@ -70,7 +70,7 @@ def _emit(d, fh):
 
 class Paper:
     def __init__(self, model_path="state/trader-model.pkl", margin=0.02, qty=10, days=35,
-                 state=Path("state"), reports=Path("reports"), rate=0.3):
+                 state=Path("state"), reports=Path("reports"), rate=0.3, retrain_hour=6):
         with open(model_path, "rb") as fh:
             self.m = pickle.load(fh)
         self.names = self.m["names"]
@@ -86,7 +86,16 @@ class Paper:
         self.closed: list[dict] = []
         sp = state / "paper-summary.json"
         if sp.exists():
-            self.closed = json.loads(sp.read_text()).get("trades", [])
+            saved = json.loads(sp.read_text())
+            self.closed = saved.get("trades", [])
+            # positions that were open when the last run stopped
+            self.positions = [Pos(**d) for d in saved.get("open", [])]
+            for p in self.positions:
+                self.last_entry[p.ticker] = max(self.last_entry.get(p.ticker, 0), p.t)
+        self.model_path = Path(model_path)
+        self.retrain_hour = retrain_hour
+        self._retrain = None                   # running retrain subprocess
+        self._retrained_on = None
         self._boot(days)
 
     # -- startup: history the features need (session VWAP, swing levels, hour tables)
@@ -290,6 +299,53 @@ class Paper:
         d["rationale"] = "; ".join(r)
         _emit(d, fh)
 
+    # -- learning from new markets ------------------------------------------------
+    def _cache_recent(self):
+        """Save the markets that settled in the last hour, so retraining sees them."""
+        now = int(time.time())
+        for m in self.client.settled_markets(now - 3600, now):
+            try:
+                self.client.window(m)
+            except Exception:
+                pass
+
+    def _maybe_retrain(self, fh):
+        """Once a day (at retrain_hour UTC) retrain on everything cached, in the
+        background, and switch to the new model when it is ready."""
+        import os
+        import subprocess
+        import sys
+        if self._retrain is not None:
+            rc = self._retrain.poll()
+            if rc is None:
+                return
+            new = self.model_path.with_suffix(".new.pkl")
+            if rc == 0 and new.exists():
+                os.replace(new, self.model_path)
+                with open(self.model_path, "rb") as fh2:
+                    self.m = pickle.load(fh2)
+                self.names = self.m["names"]
+                _emit({"event": "RETRAINED", "trained_windows": self.m["trained_windows"]}, fh)
+            else:
+                _emit({"event": "RETRAIN_FAILED", "returncode": rc}, fh)
+            self._retrain = None
+            return
+        if self.retrain_hour is None:
+            return
+        now = datetime.now(timezone.utc)
+        if now.hour != self.retrain_hour or self._retrained_on == now.date():
+            return
+        self._retrained_on = now.date()
+        cmd = [sys.executable, "-m", "kbot.trader", "--days", "70", "--no-walk",
+               "--save-model", str(self.model_path.with_suffix(".new.pkl"))]
+        if self.m.get("drop"):
+            cmd += ["--drop", ",".join(self.m["drop"])]
+        if self.m.get("lean_candles"):
+            cmd.append("--lean-candles")
+        log = open(self.state / "retrain.log", "a")
+        self._retrain = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
+        _emit({"event": "RETRAIN_STARTED"}, fh)
+
     def run(self, minutes=None):
         fh = open(self.reports / "paper.jsonl", "a")
         mk, n = None, 0
@@ -303,6 +359,11 @@ class Paper:
                         if mk is not None and not self._settle_leftovers(mk, fh):
                             pass                              # try again next minute
                         mk = self.client.current_market()
+                        try:
+                            self._cache_recent()
+                        except Exception:
+                            pass
+                    self._maybe_retrain(fh)
                     self.step(mk, T, fh)
                     for old in {p.ticker for p in self.positions} - {mk["ticker"]}:
                         self._settle_leftovers({"ticker": old}, fh)
@@ -314,3 +375,44 @@ class Paper:
             fh.close()
             self.mem.save()
             self._summary()
+
+
+def report(state=Path("state")):
+    """Paper results so far: totals, by price bucket, by setup, by pattern."""
+    sp = state / "paper-summary.json"
+    if not sp.exists():
+        print("no paper trades yet")
+        return
+    d = json.loads(sp.read_text())
+    tr = d["trades"]
+    pn = np.array([r["pnl_usd"] for r in tr]) if tr else np.array([])
+    print(f"PAPER TRADES: {len(tr)}  P&L ${pn.sum():.2f}  win {np.mean(pn > 0) if len(pn) else 0:.1%}  "
+          f"open now: {len(d.get('open', []))}")
+    if not tr:
+        return
+    def table(title, keyf):
+        g = {}
+        for r in tr:
+            for k in keyf(r):
+                g.setdefault(k, []).append(r["pnl_usd"])
+        print(f"\n{title}")
+        for k in sorted(g, key=lambda k: -sum(g[k])):
+            v = np.array(g[k])
+            print(f"  {k:34} {len(v):4d} trades  win {np.mean(v > 0):5.1%}  P&L ${v.sum():8.2f}")
+    bucket = lambda r: [f"entry {int(r['entry'] * 10) * 10:2d}-{int(r['entry'] * 10) * 10 + 9}c"]
+    table("BY ENTRY PRICE", bucket)
+    table("BY EXIT REASON", lambda r: [r["why"]])
+    table("BY SIDE AND SETUP", lambda r: [f"{r['side']} tp{r['tp']} sl{r['sl']}"])
+    table("BY PATTERN SHOWING AT ENTRY", lambda r: r.get("patterns_at_entry", []))
+    pred = np.array([r.get("predicted_pnl_c", 0) for r in tr])
+    real = pn / 10
+    print(f"\npredicted {pred.mean() * 100:+.2f}c/contract vs actual {real.mean() * 100:+.2f}c/contract")
+    mem = PatternMemory(state / "pattern-memory.json")
+    sb = mem.scoreboard(min_n=20)
+    if sb:
+        print("\nPATTERNS SCORED LIVE (move over the next 5-15 min, in sigma)")
+        for v in sb[:25]:
+            h = v.get("history", {})
+            print(f"  {v['pattern']:32} live n={v['live']['n']:5d} avg {v['live']['avg_move_sigma']:+.3f}  "
+                  f"history avg {h.get('avg_move_sigma', float('nan')):+.3f} reliable={h.get('reliable')}"
+                  f"{'  ' + v['warning'] if 'warning' in v else ''}")
