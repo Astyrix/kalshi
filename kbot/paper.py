@@ -55,6 +55,8 @@ class Pos:
     tick_why: str | None = None
     path_max: float | None = None     # best / worst bid seen while holding (5s checks)
     path_min: float | None = None
+    trail_peak: float | None = None   # 5s trailing exit: armed once bid >= +TP
+    trail_exit: float | None = None
 
 
 def _bid(side, yb, ya):
@@ -89,6 +91,7 @@ class Paper:
         self.positions: list[Pos] = []
         self.last_entry = {}
         self.showing: dict[str, list] = {}
+        self.shadows: list[dict] = []          # trailing-exit shadows still running
         self.closed: list[dict] = []
         sp = state / "paper-summary.json"
         if sp.exists():
@@ -171,11 +174,35 @@ class Paper:
             rec.update(tick_exit=round(tb, 4), tick_why=p.tick_why, tick_pnl_usd=round(tick * p.qty, 2))
         else:
             rec.update(tick_exit=px, tick_why=why, tick_pnl_usd=rec["pnl_usd"])
+        # trailing 5s exit (logged only): if it was armed (+TP reached) and hasn't
+        # given TP back yet, keep watching it as a shadow after the real exit
+        if p.trail_exit is not None:
+            rec["trail_exit"] = p.trail_exit
+        elif p.trail_peak is not None and px is not None:
+            self.shadows.append({"p": p, "id": f"{p.ticker}@{p.t}"})
+        else:                                       # never armed: same as the 5s stop / exit
+            rec["trail_exit"] = rec["tick_exit"]
+        if "trail_exit" in rec:
+            rec["trail_pnl_usd"] = self._pnl_usd(p, rec["trail_exit"]) if rec["trail_exit"] is not None \
+                else rec["pnl_usd"]
         self.closed.append(rec)
         rec["realized_usd"] = round(sum(r["pnl_usd"] for r in self.closed), 2)
         _emit(rec, fh)
         with open(self.reports / "paper_trades.jsonl", "a") as th:
             th.write(json.dumps(rec) + "\n")
+
+    @staticmethod
+    def _pnl_usd(p, px):
+        c = px - p.entry - taker_fee(min(p.entry, 0.99), p.qty) - taker_fee(max(px, 0.01), p.qty)
+        return round(c * p.qty, 2)
+
+    def _shadow_done(self, sh, px, why):
+        self.shadows.remove(sh)
+        p = sh["p"]
+        rec = {"id": sh["id"], "trail_exit": px, "why": why, "peak": p.trail_peak,
+               "trail_pnl_usd": self._pnl_usd(p, px)}
+        with open(self.reports / "paper_trail.jsonl", "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
 
     def _summary(self):
         pn = [r["pnl_usd"] for r in self.closed]
@@ -232,7 +259,12 @@ class Paper:
 
         # exits first
         for p in [p for p in self.positions if p.ticker == mk["ticker"]]:
-            b = _bid(p.side, book.yes_bid, book.yes_ask) - SLIP
+            raw = _bid(p.side, book.yes_bid, book.yes_ask)
+            b = raw - SLIP
+            if raw <= SLIP:                         # nobody to sell to: ride to settlement
+                self._decision(fh, T, mk, "WAIT_FOR_BETTER_EXIT", p.side, None, None, p,
+                               "no bid left; holding to settlement", active)
+                continue
             why = ("take_profit" if b >= p.entry + p.tp else "stop_loss" if b <= p.entry - p.sl
                    else "before_close" if T >= close_ts - 60 else None)
             if why:
@@ -374,7 +406,8 @@ class Paper:
         official exit stays the once-a-minute one the backtest simulated."""
         while time.time() < until - 0.5:
             open_ = [p for p in self.positions if mk and p.ticker == mk["ticker"]]
-            if not open_:
+            shad = [sh for sh in self.shadows if mk and sh["p"].ticker == mk["ticker"]]
+            if not open_ and not shad:
                 time.sleep(max(min(until - time.time(), 5.0), 0))
                 continue
             t0 = time.time()
@@ -387,11 +420,27 @@ class Paper:
                     b = _bid(p.side, book.yes_bid, book.yes_ask) - SLIP
                     p.path_max = b if p.path_max is None else max(p.path_max, round(b, 4))
                     p.path_min = b if p.path_min is None else min(p.path_min, round(b, 4))
+                    # trailing variant: after +TP, sell once the bid gives back TP from its peak
+                    if p.trail_exit is None:
+                        if p.trail_peak is None and b >= p.entry + p.tp:
+                            p.trail_peak = b
+                        elif p.trail_peak is not None:
+                            p.trail_peak = max(p.trail_peak, b)
+                            if b <= p.trail_peak - p.tp:
+                                p.trail_exit = round(b, 4)
                     if p.tick_exit is None:
                         if b >= p.entry + p.tp:
                             p.tick_exit, p.tick_why = round(b, 4), "take_profit"
                         elif b <= p.entry - p.sl:
                             p.tick_exit, p.tick_why = round(b, 4), "stop_loss"
+                for sh in list(shad):
+                    p = sh["p"]
+                    b = _bid(p.side, book.yes_bid, book.yes_ask) - SLIP
+                    p.trail_peak = max(p.trail_peak, b)
+                    if b <= p.trail_peak - p.tp:
+                        self._shadow_done(sh, round(b, 4), "trail")
+                    elif time.time() >= _ts(mk["close_time"]) - 60:
+                        self._shadow_done(sh, round(b, 4), "before_close")
             time.sleep(max(min(every - (time.time() - t0), until - time.time()), 0))
 
     def run(self, minutes=None):
@@ -413,6 +462,8 @@ class Paper:
                             pass
                     self._maybe_retrain(fh)
                     self.step(mk, T, fh)
+                    for sh in [sh for sh in self.shadows if sh["p"].ticker != mk["ticker"]]:
+                        self._shadow_done(sh, sh["p"].trail_peak, "market_closed")
                     for old in {p.ticker for p in self.positions} - {mk["ticker"]}:
                         self._settle_leftovers({"ticker": old}, fh)
                 except Exception as e:
@@ -458,6 +509,16 @@ def report(state=Path("state")):
               f"5-second exits ${sum(r['tick_pnl_usd'] for r in tk):.2f} on the same {len(tk)} trades")
         thin = [r for r in tk if r.get("top_size_at_entry") is not None and r["top_size_at_entry"] < 10]
         print(f"  entries where fewer than 10 contracts were offered at the best ask: {len(thin)}")
+        sh = {}
+        tp = Path("reports/paper_trail.jsonl")
+        if tp.exists():
+            for l in tp.read_text().splitlines():
+                d2 = json.loads(l)
+                sh[d2["id"]] = d2["trail_pnl_usd"]
+        tl = [r.get("trail_pnl_usd") for r in tk if "trail_pnl_usd" in r]
+        if tl or sh:
+            print(f"  5-second TRAILING exit: ${sum(tl) + sum(sh.values()):.2f} "
+                  f"on {len(tl) + len(sh)} trades (logged only)")
     pred = np.array([r.get("predicted_pnl_c", 0) for r in tr])
     real = pn / 10
     print(f"\npredicted {pred.mean() * 100:+.2f}c/contract vs actual {real.mean() * 100:+.2f}c/contract")
