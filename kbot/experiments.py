@@ -150,6 +150,66 @@ def real_pnl(q, i, side, tp, sl, w, px, slip=0.01, fees=True):
     return (1.0 if won else 0.0) - entry - fee_in
 
 
+def maker_pnl(q, i, side, tp, sl, w, px, maker_rate=0.0175):
+    """Resting-order version, conservative about queue position.
+
+    Entry: rest a buy at our side's best bid for one minute; filled only if
+    our side TRADED BELOW it during that minute (so even last in the queue
+    would be filled). Else 0 (no trade). Take-profit: rest a sell at
+    entry + tp; filled only if our side traded ABOVE it in a later minute.
+    Stop-loss: when the quoted bid <= entry - sl, sell at bid - 1c as a
+    taker. Otherwise hold to settlement. Maker fee = maker_rate * C*P*(1-P)."""
+    import math
+    def mfee(x):
+        return math.ceil(round(maker_rate * QTY * x * (1 - x) * 100, 6)) / 100 / QTY if maker_rate else 0.0
+    def rng(row):
+        _, o, h, l, c, v = row
+        if not v or h is None or l is None:
+            return None
+        return (l, h) if side == "up" else (round(1 - h, 4), round(1 - l, 4))
+    bid = q[i][1] if side == "up" else round(1 - q[i][2], 4)
+    if bid < 0.01:
+        return 0.0
+    r = px.get(q[i][0] + 60)
+    g = rng(r) if r else None
+    if g is None or not g[0] < bid:
+        return 0.0                                   # never filled
+    entry = bid
+    cost = mfee(entry)
+    target = round(entry + tp, 4)
+    for j in range(i + 1, len(q)):
+        r2 = px.get(q[j][0] + 60)          # trades during the minute after quote j
+        g2 = rng(r2) if r2 else None
+        if j > i and g2 is not None and g2[1] > target and target < 0.99:
+            return target - entry - cost - mfee(target)
+        b = (q[j][1] if side == "up" else round(1 - q[j][2], 4)) - 0.01
+        if b <= entry - sl and b > 0:
+            return b - entry - cost - taker_fee(max(b, 0.01), QTY)
+    won = (side == "up") == (w.result == "yes")
+    return (1.0 if won else 0.0) - entry - cost
+
+
+def add_maker_labels(d, ws, maker_rate=0.0175):
+    from .data import MaxyClient, load_px
+    c = MaxyClient("BTC")
+    pos = {}
+    out = {k: np.full(len(d["W"]), np.nan) for k in KEYS}
+    for n, (wi, t) in enumerate(zip(d["W"], d["T"])):
+        if wi not in pos:
+            rows = load_px(c, ws[wi].ticker)
+            q = quotes(ws[wi])
+            pos[wi] = (q, {qq[0]: j for j, qq in enumerate(q)},
+                       {int(r[0]): r for r in rows} if rows else None)
+        q, ix, px = pos[wi]
+        i = ix.get(int(t))
+        if i is None or px is None:
+            continue
+        for k in KEYS:
+            s_, tp, sl = k.split("_")
+            out[k][n] = maker_pnl(q, i, s_, float(tp), float(sl), ws[wi], px, maker_rate)
+    return out
+
+
 def add_real_labels(d, ws, slip=0.01, fees=True):
     from .data import MaxyClient, load_px
     c = MaxyClient("BTC")
@@ -384,6 +444,21 @@ def main(argv=None):
                     al = {k: (e.ask(k.split("_")[0]) <= mx) & ok[k] for k in KEYS}
                     res[f"costs {label} m{m} <= {mx}"] = e.report(f"{label}, m{m}, <= {mx * 100:.0f}c",
                                                                  *e.trade(pc, Yc, m, al))
+    if run("maker"):
+        for rate, label in ((0.0, "maker, no maker fee"), (0.0175, "maker, fee 1/4 of taker")):
+            Ym = add_maker_labels(d, ws, rate)
+            filled = {k: ~np.isnan(Ym[k]) & (Ym[k] != 0.0) for k in KEYS}
+            print(f"  {label}: entry fills {np.mean(filled[KEYS[0]]):.1%} of moments (up_0.03_0.03)")
+            ok = {k: ~np.isnan(Ym[k]) for k in KEYS}
+            pm = e.walk(Ym, train_mask=ok)
+            for m in (0.0, 0.005, 0.01, 0.02):
+                for mx in (0.25, 1.0):
+                    al = {k: (e.ask(k.split("_")[0]) <= mx) & ok[k] for k in KEYS}
+                    pnl, info = e.trade(pm, Ym, m, al)
+                    keep = [n for n, p in enumerate(pnl) if p != 0.0]       # orders that filled
+                    res[f"{label} m{m} <= {mx}"] = e.report(
+                        f"{label}, m{m}, <= {mx * 100:.0f}c (filled only)",
+                        pnl[keep] if len(keep) else np.array([]), [info[n] for n in keep])
     if run("hours"):
         hr = (d["T"] // 3600) % 24
         for lo, hi in ((8, 12), (8, 16), (12, 16)):
