@@ -95,6 +95,28 @@ def dataset(days):
     return d, ws
 
 
+def add_delayed_labels(d, ws, delay=1):
+    """Labels where the order fills `delay` minutes after the decision, at that
+    minute's ask: a stale quote at decision time can't be bought any more."""
+    pos = {}
+    out = {k: np.full(len(d["W"]), np.nan) for k in KEYS}
+    ask_out = {s_: np.full(len(d["W"]), np.nan) for s_ in ("up", "dn")}
+    for n, (wi, t) in enumerate(zip(d["W"], d["T"])):
+        if wi not in pos:
+            q = quotes(ws[wi])
+            pos[wi] = (q, {qq[0]: j for j, qq in enumerate(q)})
+        q, ix = pos[wi]
+        i = ix.get(int(t))
+        if i is None or i + delay >= len(q) - 1:
+            continue
+        j = i + delay
+        ask_out["up"][n], ask_out["dn"][n] = q[j][2], 1 - q[j][1]
+        for k in KEYS:
+            s_, tp, sl = k.split("_")
+            out[k][n] = barrier_pnl(q, j, s_, float(tp), float(sl), ws[wi])
+    return out, ask_out
+
+
 def add_trail_labels(d, ws, trail_mult=1.0):
     pos = {}
     out = {k: np.full(len(d["W"]), np.nan) for k in KEYS}
@@ -264,6 +286,22 @@ def main(argv=None):
             al = {k: e.ask(k.split("_")[0]) <= mx for k in KEYS}
             res[f"cheap<={mx}"] = e.report(f"only <= {mx * 100:.0f}c, margin 0.01", *e.trade(base, Y, 0.01, al))
         res["cheap m0.005"] = e.report("only <= 25c, margin 0.005", *e.trade(base, Y, 0.005, cheap))
+    if run("delay"):
+        Yd, ask_d = add_delayed_labels(d, ws, 1)
+        n_ok = np.sum(~np.isnan(Yd[KEYS[0]]))
+        print(f"  delayed-fill labels for {n_ok} entry moments")
+        # 1) same model and same decisions, but filled a minute later
+        for mx in (0.25, 1.0):
+            al = {k: e.ask(k.split("_")[0]) <= mx for k in KEYS}
+            res[f"delay same-model <= {mx}"] = e.report(f"decide now, fill 1 min later, <= {mx * 100:.0f}c",
+                                                       *e.trade(base, Yd, 0.01, al))
+        # 2) a model trained on delayed-fill outcomes (learns only what survives the delay)
+        pdl = e.walk(Yd)
+        for m in (0.01, 0.02, 0.03):
+            for mx in (0.25, 1.0):
+                al = {k: (e.ask(k.split("_")[0]) <= mx) for k in KEYS}
+                res[f"delay model m{m} <= {mx}"] = e.report(
+                    f"trained on 1-min-late fills, m{m}, <= {mx * 100:.0f}c", *e.trade(pdl, Yd, m, al))
     if run("hours"):
         hr = (d["T"] // 3600) % 24
         for lo, hi in ((8, 12), (8, 16), (12, 16)):
