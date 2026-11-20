@@ -208,6 +208,29 @@ def main(argv=None):
             # trailing exits on the baseline's entries (same trades, different exit)
             res[f"trail x{mult} same entries"] = e.report(
                 f"baseline entries, trail={mult}xTP exit", *e.trade(base, Yt, 0.02))
+    if run("breakdown"):
+        pnl, info = e.trade(base, Y, 0.02)
+        names = [d["names"][j] for j in e.cols]
+        tau_i = names.index("prob__tau")
+        groups = defaultdict(list)
+        from datetime import datetime, timezone
+        for (i, k), p in zip(info, pnl):
+            h = datetime.fromtimestamp(int(d["T"][i]), timezone.utc).hour
+            groups[f"hour UTC {h // 4 * 4:02d}-{h // 4 * 4 + 3:02d}"].append(p)
+            groups[f"minutes left {int(e.X[i, tau_i] * 15) // 3 * 3:2d}-{int(e.X[i, tau_i] * 15) // 3 * 3 + 2}"].append(p)
+            a = e.ask(k.split("_")[0])[i]
+            groups[f"entry {'<10c' if a < .1 else '10-25c' if a < .25 else '25-50c' if a < .5 else '50-75c' if a < .75 else '75c+'}"].append(p)
+        print("\n  where the baseline (margin 0.02) makes and loses money:")
+        for g in sorted(groups):
+            v = np.array(groups[g])
+            print(f"    {g:24} {len(v):4d} trades  win {np.mean(v > 0):5.1%}  P&L ${v.sum():8.2f}")
+        print()
+    if run("sizing"):
+        # size by predicted edge: 5 contracts at the margin, up to 20 at 3x the margin
+        for m in (0.02,):
+            pnl, info = e.trade(base, Y, m)
+            mult = np.array([min(max(base[k][i] / m, 0.5), 2.0) for i, k in info])
+            res["sizing"] = e.report("size by edge (5-20 contracts) m0.02", pnl * mult, info)
     if run("bagging"):
         pb = e.walk(Y, seeds=(0, 1, 2, 3, 4))
         for m in (0.01, 0.02, 0.03):
