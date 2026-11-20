@@ -417,9 +417,13 @@ class Paper:
         if self.retrain_hour is None:
             return
         now = datetime.now(timezone.utc)
-        if now.hour != self.retrain_hour or self._retrained_on == now.date():
+        stamp = self.state / "last-retrain.txt"
+        if self._retrained_on is None and stamp.exists():
+            self._retrained_on = stamp.read_text().strip()      # survives restarts
+        if now.hour != self.retrain_hour or self._retrained_on == str(now.date()):
             return
-        self._retrained_on = now.date()
+        self._retrained_on = str(now.date())
+        stamp.write_text(self._retrained_on)
         cmd = [sys.executable, "-m", "kbot.trader", "--days", str(self.train_days), "--no-walk",
                "--save-model", str(self.model_path.with_suffix(".new.pkl"))]
         if self.m.get("drop"):
