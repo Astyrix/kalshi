@@ -92,6 +92,7 @@ class Paper:
         self.last_entry = {}
         self.showing: dict[str, list] = {}
         self.shadows: list[dict] = []          # trailing-exit shadows still running
+        self.record_ticks = True               # save the book every 5s for exit research
         self.closed: list[dict] = []
         sp = state / "paper-summary.json"
         if sp.exists():
@@ -190,6 +191,15 @@ class Paper:
         _emit(rec, fh)
         with open(self.reports / "paper_trades.jsonl", "a") as th:
             th.write(json.dumps(rec) + "\n")
+
+    def _tick(self, ticker, book):
+        """5-second top of book, saved for exit research (data/ticks/<ticker>.jsonl.gz)."""
+        import gzip
+        d = Path("data/ticks")
+        d.mkdir(parents=True, exist_ok=True)
+        with gzip.open(d / f"{ticker}.jsonl.gz", "at") as fh:
+            fh.write(json.dumps([int(time.time()), book.yes_bid, book.yes_ask,
+                                 round(book.yes_bid_top, 2), round(book.yes_ask_top, 2)]) + "\n")
 
     @staticmethod
     def _pnl_usd(p, px):
@@ -407,14 +417,16 @@ class Paper:
         while time.time() < until - 0.5:
             open_ = [p for p in self.positions if mk and p.ticker == mk["ticker"]]
             shad = [sh for sh in self.shadows if mk and sh["p"].ticker == mk["ticker"]]
-            if not open_ and not shad:
+            t0 = time.time()
+            if mk is None or not self.record_ticks and not open_ and not shad:
                 time.sleep(max(min(until - time.time(), 5.0), 0))
                 continue
-            t0 = time.time()
             try:
                 book = self.client.book(mk["ticker"])
             except Exception:
                 book = None
+            if book and self.record_ticks:
+                self._tick(mk["ticker"], book)
             if book and book.yes_bid is not None and book.yes_ask is not None:
                 for p in open_:
                     b = _bid(p.side, book.yes_bid, book.yes_ask) - SLIP
