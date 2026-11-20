@@ -49,9 +49,12 @@ def coinbase_minutes(product: str, start_ts: int, end_ts: int, pause=0.15) -> di
         else:
             rows = []
             d0 = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
             for k in range(0, 1440, 300):
                 a = d0 + timedelta(minutes=k)
-                b = a + timedelta(minutes=299)
+                b = min(a + timedelta(minutes=299), now)
+                if a >= now:
+                    break                       # Coinbase rejects ranges in the future
                 rows += _get(f"https://api.exchange.coinbase.com/products/{product}/candles",
                              {"granularity": 60, "start": a.isoformat(), "end": b.isoformat()})
                 time.sleep(pause)
