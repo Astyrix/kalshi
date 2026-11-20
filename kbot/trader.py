@@ -346,7 +346,7 @@ def lean_ok(name: str) -> bool:
     return True
 
 
-def save_model(path, names, X, Y, keys, drop, n_windows, lean=False):
+def save_model(path, names, X, Y, keys, drop, n_windows, lean=False, real=False):
     """Fit every TP/SL pair (and the index stop-vs-target classifier) on all rows."""
     import pickle
     import lightgbm as lgb
@@ -358,7 +358,7 @@ def save_model(path, names, X, Y, keys, drop, n_windows, lean=False):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as fh:
         pickle.dump({"names": names, "models": models, "idx_clf": idx_clf, "keys": keys,
-                     "barriers": BARRIERS, "drop": sorted(drop), "lean_candles": lean, "trained_windows": n_windows,
+                     "barriers": BARRIERS, "drop": sorted(drop), "lean_candles": lean, "real_fills": real, "trained_windows": n_windows,
                      "trained_at": int(time.time())}, fh)
     print(f"saved model ({len(names)} features, {len(keys)} stop/target pairs) to {path}", flush=True)
 
@@ -372,6 +372,8 @@ def main(argv=None):
     ap.add_argument("--drop", default="", help="comma-separated skill groups to leave out, e.g. flow,calendar")
     ap.add_argument("--save-model", help="train on ALL windows and save the model here (for kbot paper)")
     ap.add_argument("--no-walk", action="store_true", help="with --save-model: skip the walk-forward test")
+    ap.add_argument("--real-fills", action="store_true",
+                    help="learn from outcomes where every fill matched a real trade (needs data/cache/BTC-px)")
     ap.add_argument("--lean-candles", action="store_true",
                     help="keep only the original candle patterns plus breakout chart patterns "
                          "(the full set adds ~120 mostly-noise inputs)")
@@ -392,6 +394,11 @@ def main(argv=None):
         print(f"  {g:9} {sum(n.startswith(g + '__') for n in names):3d} features")
     keys = [f"{s}_{tp}_{sl}" for s in ("up", "dn") for tp, sl in BARRIERS]
     Y = D["Y"]
+    if a.real_fills:
+        from .experiments import add_real_labels
+        Yr, have = add_real_labels(D, ws)
+        Y = {**Yr, "idx_barrier": Y["idx_barrier"]}
+        print(f"real-fill outcomes for {have}/{len(W)} entry moments", flush=True)
 
     def walk(cols, which=keys):
         Xs = X[:, cols]
@@ -424,7 +431,7 @@ def main(argv=None):
 
     all_cols = list(range(len(names)))
     if a.save_model:
-        save_model(a.save_model, names, X, Y, keys, drop, len(ws), a.lean_candles)
+        save_model(a.save_model, names, X, Y, keys, drop, len(ws), a.lean_candles, a.real_fills)
         if a.no_walk:
             return
     pred, ts = walk(all_cols)

@@ -430,6 +430,8 @@ class Paper:
             cmd += ["--drop", ",".join(self.m["drop"])]
         if self.m.get("lean_candles"):
             cmd.append("--lean-candles")
+        if self.m.get("real_fills"):
+            cmd.append("--real-fills")
         log = open(self.state / "retrain.log", "a")
         self._retrain = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
         _emit({"event": "RETRAIN_STARTED"}, fh)
