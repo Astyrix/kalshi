@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import time
 from pathlib import Path
 
 import numpy as np
@@ -42,8 +43,16 @@ def spot_1s(start, end, s=None):
         return {int(k): v for k, v in json.loads(p.read_text()).items()}
     s = s or requests.Session()
     out, after = {}, (end + 1) * 1000
-    for _ in range(20):
-        d = s.get(OKX, params={"instId": "BTC-USDT", "bar": "1s", "limit": 100, "after": after}, timeout=15).json()
+    for _ in range(40):
+        for k in range(5):
+            time.sleep(0.12)                    # OKX allows ~20 requests / 2 s on this endpoint
+            d = s.get(OKX, params={"instId": "BTC-USDT", "bar": "1s", "limit": 100, "after": after},
+                      timeout=15).json()
+            if d.get("code") == "0":
+                break
+            time.sleep(1.5 * 2 ** k)            # rate-limited: back off, never cache a partial series
+        else:
+            raise RuntimeError(f"OKX: {d.get('msg')}")
         rows = d.get("data") or []
         if not rows:
             break
@@ -54,6 +63,8 @@ def spot_1s(start, end, s=None):
         after = int(rows[-1][0])
         if after // 1000 < start - 30:
             break
+    if len(out) < 0.9 * (end - start + 30):
+        raise RuntimeError(f"OKX returned {len(out)} of {end - start + 30} seconds")
     SPOT.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(out))
     return out
