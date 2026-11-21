@@ -107,3 +107,19 @@ def test_labels_keep_dead_books():
     i = len(q) - 2                                              # buy UP at 2 min left
     pnl = barrier_pnl(q, i, "up", 0.05, 0.05, w)
     assert -0.05 < pnl < -0.03                                  # paid ~4c, sold at 0
+
+
+def test_maker_queue():
+    from kbot.maker_paper import Order, maker_fee
+    o = Order("yes", 0.26, 100, 10)
+    o.on_trade(0.26, 95)
+    assert o.filled["strict"] == 0          # still 5 ahead of us
+    o.on_trade(0.26, 10)
+    assert o.filled["strict"] == 5
+    o.on_trade(0.25, 1)                     # printed through our price -> fully filled
+    assert o.filled["strict"] == 10
+    q = Order("no", 0.73, 500, 10)
+    q.on_book(50)                           # cancels ahead only help the loose model
+    q.on_trade(0.73, 55)
+    assert q.filled == {"strict": 0.0, "loose": 5.0}
+    assert maker_fee(0.5, 10) == 0.05
