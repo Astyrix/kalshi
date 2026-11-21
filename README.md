@@ -116,6 +116,27 @@ pattern predicts direction, and Kalshi prices don't lag spot. Breakouts do
 predict bigger-than-normal moves (1.2-1.4x) on both. `kbot/pattern_memory.py`
 keeps scoring every pattern live and warns when one stops working.
 
+## What real traders do (Nov 2026 study)
+
+To find what actually works in these markets, the bot studied real traders
+on both venues that list the same 15-minute BTC windows:
+
+| Study | Command | Finding |
+|---|---|---|
+| Kalshi tape, 150 markets, 639M contracts | `python -m kbot.tape_study` | Takers lose 0.12c/contract before fees, so makers keep ~0.1c. No group of takers (by size, price, time left) is significantly better or worse; trades of 1000+ contracts are not informed. The fee (up to 1.75c) is the taker's real loss. KXBTC15M's fee type is `quadratic` (no maker fee). |
+| Spot latency, 150 markets | `python -m kbot.latency_study` | Kalshi YES moves in the same second as OKX spot (corr 0.48 at lag 0, 0.06 at +1 s). The latency-arbitrage window is under a second: only bots sitting next to the exchange can trade it. |
+| Late favourites / long shots, 32k markets | `kbot/calibration.py --fine --slip 0 --qty 100` | Buying at the ask loses on both sides; long shots are the most overpriced (favourite-longshot bias, up to -6c), but that has shrunk a lot in recent months. |
+| Live market making | `python -m kbot.maker_paper` | Resting bids at the back of the queue lost $41.60 over 3 markets even with no fee: we only get filled when the price runs through our quote. |
+| Polymarket wallets, 14 days, 8,677 wallets, $41M | `python -m kbot.poly_study` | Taker wallets lost $74k in total. Pair buyers (both outcomes for < $1) make 2-3% gross, which Polymarket's ~2.5% fee cancels. |
+| What winners do differently, 7 days | `python -m kbot.poly_deep` | Winners buy with the last 30 s of movement, and fair value moves their way afterwards (+0.9c at 120 s). Losers buy against it (-3.2c at 120 s) and lose 7.5c/share. A simple spot fair-value model is anti-predictive: the market knows more. |
+| **Cross-venue pairs** | `python -m kbot.xvenue_watch` | Buy one outcome on Polymarket and the other on Kalshi when the pair costs < $1 after both fees. History (150 windows; Polymarket's tape is ~3 s late, so aligned): +3.5c/pair on ~8% of Polymarket trades. Live (books read 0.35 s apart): positive in the first settled windows. **Not yet proven.** |
+
+The two venues settle on different price feeds (Chainlink TWAP vs CF
+BRTI) and disagreed in about 2% of windows, so a pair is not risk-free. In
+those windows "both legs win" and "both legs lose" were about equally
+common. Polymarket restricts some regions, including the US on its main
+exchange; check your own eligibility before considering it.
+
 ## How it works
 
 - **Data (`kbot/data.py`).** The BRTI index Kalshi settles on, second by
