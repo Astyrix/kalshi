@@ -196,6 +196,9 @@ class Maker:
     def run(self, minutes):
         until = time.time() + minutes * 60
         OUT.parent.mkdir(exist_ok=True)
+        done = set()
+        if OUT.exists():
+            done = {json.loads(l)["ticker"] for l in OUT.read_text().splitlines() if l.strip()}
         with open(OUT, "a") as fh:
             while time.time() < until:
                 try:
@@ -203,18 +206,23 @@ class Maker:
                 except Exception:
                     time.sleep(10)
                     continue
+                if mk["ticker"] in done or _ts(mk["close_time"]) <= time.time():
+                    time.sleep(5)               # the listing still shows the market that just closed
+                    continue
                 # finish a market left over from an earlier run first
                 try:
                     s = json.loads(STATE.read_text())
                     if s.get("ticker") and s["ticker"] != mk["ticker"]:
                         old = self.c.market(s["ticker"]) or {}
-                        if old.get("close_time"):
+                        if old.get("close_time") and s["ticker"] not in done:
                             self.run_market(old, until, fh)
+                            done.add(s["ticker"])
                             continue
                 except Exception:
                     pass
                 if not self.run_market(mk, until, fh):
                     break
+                done.add(mk["ticker"])
                 time.sleep(3)
 
 
