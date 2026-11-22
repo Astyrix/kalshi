@@ -209,6 +209,76 @@ def settle(rows):
     return res
 
 
+FINALS = Path("state/xvenue-finals.json")
+
+
+def finals(tickers):
+    """{kalshi ticker: [kalshi strike, kalshi settlement value, polymarket strike, polymarket final]}
+    for settled windows (Kalshi expiration_value, Gamma priceToBeat / finalPrice), cached."""
+    try:
+        out = json.loads(FINALS.read_text())
+    except Exception:
+        out = {}
+    c, s = MaxyClient("BTC"), requests.Session()
+    for tk, close in tickers.items():
+        if tk in out or close > time.time() - 120:
+            continue
+        try:
+            m = c.market(tk) or {}
+            e = s.get(f"{GAMMA}/events", params={"slug": f"btc-updown-15m-{close - 900}"}, timeout=15).json()
+            md = (e[0].get("eventMetadata") or {}) if e else {}
+            if m.get("expiration_value") and md.get("finalPrice"):
+                out[tk] = [float(m["floor_strike"]), float(m["expiration_value"]),
+                           float(md["priceToBeat"]), float(md["finalPrice"])]
+        except Exception:
+            continue
+    FINALS.parent.mkdir(exist_ok=True)
+    FINALS.write_text(json.dumps(out))
+    return out
+
+
+def two_feed(rows, res):
+    """Both settlement feeds live: BRTI vs Kalshi's strike and Chainlink vs Polymarket's strike.
+    The venues split when the final BRTI move lands between the two distances, so the gap
+    between them (and how it changes before the close) says which pair a split would hurt.
+
+    Fits the change in the Chainlink-BRTI gap from each read to the close, by time left
+    (gap_T - gap_t = a + b * gap_t + noise), then values each pair by simulation:
+    E[pay] = P(Polymarket Up) + 1 - P(Kalshi YES) for Polymarket Up + Kalshi NO, with the
+    final BRTI move drawn from the empirical table and the gap change from the fit."""
+    live = [r for r in rows if "cl" in r and "ptb" in r and "brti" in r and r["ticker"] in res]
+    if not live:
+        print("\ntwo-feed: no settled window with both feeds logged yet")
+        return None
+    closes = {r["ticker"]: int(round((r["ts"] + r["left"]) / 900)) * 900 for r in live}
+    fin = finals(closes)
+    live = [r for r in live if r["ticker"] in fin]
+    wins = sorted({r["ticker"] for r in live})
+    print(f"\ntwo-feed ({len(wins)} settled windows with Chainlink logged):")
+    if not wins:
+        return None
+    err = [abs(next(r["ptb"] for r in live if r["ticker"] == tk) - fin[tk][2]) for tk in wins]
+    print(f"  our Chainlink strike vs Polymarket's priceToBeat: median |diff| ${np.median(err):.2f}, max ${max(err):.2f}")
+    print(f"  Kalshi strike from MaxyCharts vs Kalshi's: max |diff| "
+          f"${max(abs(next(r['strike'] for r in live if r['ticker'] == tk) - fin[tk][0]) for tk in wins):.2f}")
+    g_t = np.array([(r["cl"] - r["ptb"]) - (r["brti"] - r["strike"]) for r in live])
+    g_T = np.array([(fin[r["ticker"]][3] - fin[r["ticker"]][2]) - (fin[r["ticker"]][1] - fin[r["ticker"]][0])
+                    for r in live])
+    left = np.array([r["left"] for r in live])
+    fit = {}
+    print("  gap = (Chainlink - its strike) - (BRTI - Kalshi's strike); change from read to close:")
+    for lo, hi in ((0, 60), (60, 180), (180, 420), (420, 900)):
+        m = (left >= lo) & (left < hi)
+        if m.sum() < 30:
+            continue
+        b, a = np.polyfit(g_t[m], g_T[m] - g_t[m], 1)
+        sd = float(np.std(g_T[m] - g_t[m] - (a + b * g_t[m])))
+        fit[(lo, hi)] = (a, b, sd)
+        print(f"    {lo:3d}-{hi:3d}s left: n {m.sum():5d}, change = {a:+.2f} {b:+.2f} * gap, resid sd ${sd:.2f}"
+              f" (gap sd ${np.std(g_t[m]):.2f})")
+    return fit
+
+
 def attach_brti(rows):
     """Give rows recorded before BRTI was logged live their BRTI / strike / volatility from the
     cached per-second index (the same numbers MaxyCharts shows live at that moment)."""
@@ -310,8 +380,9 @@ def report():
     splits = [tk for tk, (k, p) in res.items() if (k == "yes") != (p == "up")]
     print(f"\npaper trades (settled windows: {len(res)}, of which the venues split on {len(splits)}"
           f"{': ' + ', '.join(splits) if splits else ''}; 50 pairs max per entry, 500 per window):")
+    two_feed(rows, res)
     norm = [tk for tk in res if tk not in splits]
-    print(f"  per window: mean over the {len(norm)} normal windows | mean over split windows | expected at the "
+    print(f"\n  per window: mean over the {len(norm)} normal windows | mean over split windows | expected at the "
           f"historical split rate {SPLIT_RATE:.2%}")
     for thr in (0.005, 0.01, 0.02):
         for persist, zone, late in ((False, None, 0), (True, None, 0), (False, 0.10, 0), (False, 0.15, 0),
