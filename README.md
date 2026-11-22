@@ -197,6 +197,16 @@ about $0.60 over the first windows checked; the print at the open was $10-45
 off). So both venues settle on a 60-second average of their own feed, and a
 window's final price is always the next window's strike (1,338 of 1,338).
 
+Can the split be predicted per pair? A split needs the final BRTI move to land
+between the two feeds' distances to their strikes, so the sign of the final
+gap between those distances says which pair loses. Predicting that gap from
+the open (it mean-reverts: -0.40 x the strike offset, residual sd $3.61)
+pointed the wrong way in both live splits (predicted -$2.1 and -$1.4, actual
++$12.4 and +$1.9), and filtering pairs on it did worse than the zone rule
+(58 windows). Within a window the gap is steadier (sd $2-3, about $2 of
+change left to the close), so the recorder now logs it live; it has not seen
+a split yet.
+
 Polymarket restricts some regions, including the US on its main exchange;
 check your own eligibility before considering it. Fill risk (both legs
 filling at the quoted prices) is not tested by paper trading.
