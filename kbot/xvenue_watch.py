@@ -73,7 +73,7 @@ def brti(c, event):
     return float(v[-1]), brti_vol(v)
 
 
-def run(minutes, poll=2.0):
+def run(minutes, poll=1.0):
     c, s = MaxyClient("BTC", min_interval=0.25), requests.Session()
     s.headers["user-agent"] = "kbot-research/0.1"
     until = time.time() + minutes * 60
@@ -173,13 +173,24 @@ def attach_brti(rows):
     return rows
 
 
-def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=5.0, zone=None):
+def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=5.0, zone=None, late=0):
     """Buy min(size, max_pairs) pairs whenever the net edge after fees clears thr
     (optionally only if it was also there on the previous read), at most one entry
     per `gap` seconds and per_window pairs per window. Settled on both venues.
-    zone: skip reads where P(BRTI ends within $15 of the strike) >= zone (split risk)."""
+    zone: skip reads where P(BRTI ends within $15 of the strike) >= zone (split risk).
+    late: fill at the prices and size of the read `late` reads after the signal (the
+    order arrives after the book has moved), only if that read still has edge >= 0
+    (a limit order at the signalled prices would not fill at a loss)."""
     out, used, last, prev = [], {}, {}, {}
-    for r in rows:
+    nxt = {}
+    if late:
+        by_tk = {}
+        for i, r in enumerate(rows):
+            by_tk.setdefault(r["ticker"], []).append(i)
+        for idx in by_tk.values():
+            for a, b in zip(idx, idx[late:]):
+                nxt[a] = b
+    for i, r in enumerate(rows):
         if r["ticker"] not in res:
             continue
         if not (0 < r["k_yes_ask"] < 1 and 0 < r["k_no_ask"] < 1):
@@ -194,6 +205,13 @@ def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=
             prev[name] = x["net"]
             if not ok or r["ts"] - last.get(r["ticker"], 0) < gap:
                 continue
+            if late:
+                j = nxt.get(i)
+                if j is None or rows[j]["ts"] - r["ts"] > 3 * late + 2:
+                    continue
+                x = rows[j][name]
+                if x["net"] < 0 or not (0 < rows[j]["k_yes_ask"] < 1 and 0 < rows[j]["k_no_ask"] < 1):
+                    continue
             q = min(x["size"], max_pairs, per_window - used.get(r["ticker"], 0))
             if q < 1:
                 continue
@@ -201,8 +219,7 @@ def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=
                 pay = (pwin == "up") + (kres == "no")
             else:
                 pay = (pwin == "down") + (kres == "yes")
-            fee_cost = (1 - x["net"]) - x["cost"]            # both fees per pair
-            out.append((r["ticker"], q, q * (pay - x["cost"] - fee_cost), pay))
+            out.append((r["ticker"], q, q * (pay - (1 - x["net"])), pay))
             used[r["ticker"]] = used.get(r["ticker"], 0) + q
             last[r["ticker"]] = r["ts"]
     return out
@@ -237,15 +254,17 @@ def report():
     print(f"\npaper trades (settled windows: {len(res)}, of which the venues split on {len(splits)}"
           f"{': ' + ', '.join(splits) if splits else ''}; 50 pairs max per entry, 500 per window):")
     for thr in (0.005, 0.01, 0.02):
-        for persist, zone in ((False, None), (True, None), (False, 0.10), (False, 0.15)):
-            t = paper(rows, res, thr=thr, persist=persist, zone=zone)
+        for persist, zone, late in ((False, None, 0), (True, None, 0), (False, 0.10, 0), (False, 0.15, 0),
+                                    (False, None, 1), (False, 0.10, 1), (False, 0.10, 2)):
+            t = paper(rows, res, thr=thr, persist=persist, zone=zone, late=late)
             if not t:
                 continue
             pnl = sum(x[2] for x in t)
             pairs = sum(x[1] for x in t)
             split = sum(1 for x in t if x[3] != 1)
-            tag = " & still there 2 s later" if persist else f" & P(end within $15) < {zone:.0%}" if zone else ""
-            print(f"  edge >= {thr * 100:.1f}c{tag:26}: {len(t):4d} entries, "
+            tag = ((" & still there next read" if persist else "") + (f" & P(end within $15) < {zone:.0%}" if zone else "")
+                   + (f", filled {late} read(s) later (limit)" if late else ""))
+            print(f"  edge >= {thr * 100:.1f}c{tag:52}: {len(t):4d} entries, "
                   f"{pairs:7.0f} pairs, P&L ${pnl:+8.2f} ({pnl / pairs * 100:+.2f}c/pair), "
                   f"{len({x[0] for x in t})} windows, {split} entries where the venues settled differently")
 

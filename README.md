@@ -129,7 +129,8 @@ on both venues that list the same 15-minute BTC windows:
 | Live market making | `python -m kbot.maker_paper` | Resting bids at the back of the queue lost $41.60 over 3 markets even with no fee: we only get filled when the price runs through our quote. |
 | Polymarket wallets, 14 days, 8,677 wallets, $41M | `python -m kbot.poly_study` | Taker wallets lost $74k in total. Pair buyers (both outcomes for < $1) make 2-3% gross, which Polymarket's ~2.5% fee cancels. |
 | What winners do differently, 7 days | `python -m kbot.poly_deep` | Winners buy with the last 30 s of movement, and fair value moves their way afterwards (+0.9c at 120 s). Losers buy against it (-3.2c at 120 s) and lose 7.5c/share. A simple spot fair-value model is anti-predictive: the market knows more. |
-| **Cross-venue pairs** | `python -m kbot.xvenue_watch`, `python -m kbot.basis_study --hist` | Buy one outcome on Polymarket and the other on Kalshi when the pair costs < $1 after both fees. It pays $1 unless the venues settle differently. Positive expected value only after filtering out the split risk below; see the next section. |
+| Momentum, Kalshi tape, 150 markets | (scratch study) | Takers buying with the last 5 s of spot movement do ~0.8c/contract better than those buying against it (z 4.5), but the taker fee (~1.5c mid-range) exceeds it: every group loses after fees. |
+| **Cross-venue pairs** | `python -m kbot.xvenue_watch`, `python -m kbot.basis_study --hist` | Buy one outcome on Polymarket and the other on Kalshi when the pair costs < $1 after both fees. It pays $1 unless the venues settle differently. Positive expected value only after filtering out the split risk, and only a little is left for a bot that is not the fastest; see the next section. |
 
 ### Basis risk: when the two venues settle differently
 
@@ -152,20 +153,26 @@ on both (`python -m kbot.basis_study`):
 
 On the historical tapes (every second a Polymarket taker and a Kalshi taker
 bought opposite sides, 155 windows, split windows reweighted to 0.68%;
-`python -m kbot.basis_study --hist`), per window at up to 500 pairs:
+`python -m kbot.basis_study --hist`), expected P&L per window at up to 500
+pairs, filling at the signal vs. arriving 2 s late:
 
-| Rule | EV / window | Loss in a split window | Split rate that breaks even |
-|---|---|---|---|
-| edge >= 1c after fees | +$3.93 | -$247 | 2.2% |
-| edge - P(split) >= 0.5c | +$4.81 | -$191 | 3.1% |
-| edge >= 0.5c and P(BRTI ends within $15 of strike) < 10% | +$2.93 | -$9 | 25% |
+| Rule | At signal | Loss in a split window | Break-even split rate | 2 s late, limit (edge >= 0) | 2 s late, any price |
+|---|---|---|---|---|---|
+| edge >= 1c after fees | +$3.93 | -$247 | 2.2% | -$0.13 | -$3.78 |
+| edge - P(split) >= 0.5c | +$4.81 | -$191 | 3.1% | +$0.15 | -$2.60 |
+| edge >= 0.5c and P(BRTI ends within $15 of strike) < 10% | +$2.93 | -$9 | 25% | +$0.46 (+0.8c/pair) | -$1.41 |
 
-The last rule gives up about 40% of the expected value to nearly remove the
-tail, so it still works if splits turn out many times more common than seen.
-It was chosen from about 30 variants on the same windows, so the live
-recorder (`kbot/xvenue_watch.py`, which now logs BRTI, strike and volatility
-on every read) is the real test. Live so far: one split in 19 windows; the
-raw 0.5c rule is flat (+$0.81), the zone rule +$42.10 (+1.7c/pair).
+Two conclusions. The zone rule (skip when BRTI may close near the strike)
+gives up some expected value to nearly remove the tail. And the gaps close
+within a second or two: matched historical fills were taken by someone,
+possibly arbitrageurs doing both legs, and a bot that arrives 2 s later
+keeps only about +$0.5 a window, and only with limit orders. That is a
+small edge that belongs to the fastest bots. The rule was chosen from about
+30 variants on the same windows, so the live recorder
+(`kbot/xvenue_watch.py`: reads both books every second, logs BRTI, strike
+and volatility, and reports fills 1-2 reads late with a limit) is the real
+test. Live so far: one split in 19 windows, which dominates every rule's
+result; far more windows are needed.
 
 Polymarket restricts some regions, including the US on its main exchange;
 check your own eligibility before considering it. Fill risk (both legs

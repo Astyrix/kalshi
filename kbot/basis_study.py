@@ -194,7 +194,16 @@ def hist(W, b, med, resid, shift=-3):
     return E
 
 
-def simulate(E, rule, thr, per_entry=50, per_window=500, gap=5):
+def simulate(E, rule, thr, per_entry=50, per_window=500, gap=5, delay=0, limit=True):
+    """Enter on matched pairs where rule(e) >= thr. delay > 0: the order arrives `delay` s
+    later and fills against the next matched pair in that direction 'delay' to 'delay'+2 s
+    after the signal, at its prices; with limit=True only if that pair's edge is still >= 0."""
+    import bisect
+    from collections import defaultdict
+    by = defaultdict(list)
+    for e in E:
+        by[(e["tk"], e["up"])].append(e)
+    tsl = {k: [e["ts"] for e in v] for k, v in by.items()}
     used, last, out = {}, {}, []
     for e in E:
         if rule(e) < thr:
@@ -202,10 +211,18 @@ def simulate(E, rule, thr, per_entry=50, per_window=500, gap=5):
         key = (e["tk"], e["up"])
         if e["ts"] - last.get(key, -1e9) < gap:
             continue
-        q = min(e["size"], per_entry, per_window - used.get(e["tk"], 0))
+        f = e
+        if delay:
+            i = bisect.bisect_left(tsl[key], e["ts"] + delay)
+            if i >= len(tsl[key]) or tsl[key][i] > e["ts"] + delay + 2:
+                continue
+            f = by[key][i]
+            if limit and f["net"] < 0:
+                continue
+        q = min(f["size"], per_entry, per_window - used.get(e["tk"], 0))
         if q < 1:
             continue
-        out.append((e["tk"], q, q * (e["pay"] - (1 - e["net"])), e["split"]))
+        out.append((e["tk"], q, q * (f["pay"] - (1 - f["net"])), e["split"]))
         used[e["tk"]] = used.get(e["tk"], 0) + q
         last[key] = e["ts"]
     return out
@@ -227,12 +244,14 @@ def evaluate(E, rate):
     n_norm = len(wins) - n_split
     print(f"\n{len(E)} matched pairs in {len(wins)} windows ({n_split} where the venues split); "
           f"split windows reweighted to the true rate {rate:.2%}")
-    print(f"{'rule':40} {'thr':>4} {'pairs':>6} {'normal $/win':>12} {'split $/win':>11} {'EV $/win':>9} "
+    print(f"{'rule':40} {'thr':>4} {'fill':>18} {'pairs':>6} {'normal $/win':>12} {'split $/win':>11} {'EV $/win':>9} "
           f"{'c/pair':>7} {'break-even split rate':>21}")
     out = {}
     for name, f in RULES.items():
-        for thr in (0.005, 0.01, 0.02):
-            t = simulate(E, f, thr)
+        for thr, delay, limit in ((0.005, 0, True), (0.01, 0, True), (0.02, 0, True),
+                                  (0.005, 2, True), (0.005, 2, False)):
+            t = simulate(E, f, thr, delay=delay, limit=limit)
+            fill = "at signal" if not delay else f"{delay} s late, " + ("limit" if limit else "any price")
             if not t:
                 continue
             ok = [x for x in t if not x[3]]
@@ -244,9 +263,9 @@ def evaluate(E, rate):
             ev = (1 - rate) * gn + rate * gs
             evc = ev / ((1 - rate) * pn + rate * ps) * 100 if pn else 0
             be = gn / (gn - gs) if gs < 0 < gn else (1.0 if gs >= 0 else 0.0)
-            print(f"{name:40} {thr * 100:4.1f} {sum(x[1] for x in t):6.0f} {gn:+12.2f} {gs:+11.2f} {ev:+9.2f} "
+            print(f"{name:40} {thr * 100:4.1f} {fill:>18} {sum(x[1] for x in t):6.0f} {gn:+12.2f} {gs:+11.2f} {ev:+9.2f} "
                   f"{evc:+7.2f} {be:21.1%}")
-            out[f"{name} @ {thr}"] = {"normal_per_window": gn, "split_per_window": gs, "ev_per_window": ev,
+            out[f"{name} @ {thr} / {fill}"] = {"normal_per_window": gn, "split_per_window": gs, "ev_per_window": ev,
                                       "c_per_pair": evc, "breakeven_split_rate": be}
     return out
 
