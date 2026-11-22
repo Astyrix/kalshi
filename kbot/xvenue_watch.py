@@ -3,13 +3,16 @@
 Both venues list "BTC up or down" for identical 15-minute windows. If, at the
 same moment, Polymarket's Up ask + Kalshi's NO ask (or Polymarket's Down ask +
 Kalshi's YES ask) costs less than $1 after both taker fees, buying both locks
-in the difference (they settle on different price feeds - Chainlink TWAP vs
-CF BRTI - and disagree in ~2.5% of windows, which is the remaining risk).
+in the difference - unless the venues settle differently. They settle on
+different feeds (Chainlink BTC/USD vs CF BRTI, each with its own strike) and
+split in ~0.7% of windows, always when BTC closes near the strike
+(kbot.basis_study).
 
 Historical tapes suggested a small edge, but Polymarket's tape timestamps run
-~3 s late, so only simultaneous live books settle it. Every ~2 s this reads
-both order books (paper only, nothing is sent) and logs the best pair cost,
-the size available at it, and the net edge after fees.
+~3 s late, so only simultaneous live books settle it. About once a second this
+reads both order books (paper only, nothing is sent) and logs the best pair
+cost, the size available at it and the net edge after fees, plus both
+settlement feeds: BRTI vs Kalshi's strike and Chainlink vs Polymarket's strike.
 
   python -m kbot.xvenue_watch --minutes 115
   python -m kbot.xvenue_watch --report
@@ -17,8 +20,11 @@ the size available at it, and the net edge after fees.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
+import ssl
+import threading
 import time
 from pathlib import Path
 
@@ -73,12 +79,55 @@ def brti(c, event):
     return float(v[-1]), brti_vol(v)
 
 
+RTDS = "wss://ws-live-data.polymarket.com"
+
+
+class Chainlink:
+    """Polymarket's live Chainlink BTC/USD stream (the feed its 15-minute markets settle on),
+    one print per second, kept for the last 20 minutes in a background thread. Polymarket only
+    publishes a window's strike (priceToBeat) after it closes, so the strike live is the print
+    stamped at the window's open second."""
+
+    def __init__(self):
+        self.px, self.last = {}, None              # {second: price}, (second, price, received)
+        threading.Thread(target=lambda: asyncio.run(self._loop()), daemon=True).start()
+
+    async def _loop(self):
+        import websockets
+        sub = {"action": "subscribe", "subscriptions": [
+            {"topic": "crypto_prices_chainlink", "type": "*", "filters": '{"symbol":"btc/usd"}'}]}
+        ctx = ssl.create_default_context()
+        while True:
+            try:
+                async with websockets.connect(RTDS, ssl=ctx, open_timeout=15, ping_interval=20) as ws:
+                    await ws.send(json.dumps(sub))
+                    async for m in ws:
+                        try:
+                            d = json.loads(m)["payload"]
+                            t, v = int(d["timestamp"]) // 1000, float(d["value"])
+                        except Exception:
+                            continue
+                        self.px[t] = v
+                        self.last = (t, v, time.time())
+                        for k in [k for k in self.px if k < t - 1200]:
+                            del self.px[k]
+            except Exception:
+                await asyncio.sleep(3)
+
+    def at(self, sec):
+        return self.px.get(sec)
+
+
 def run(minutes, poll=1.0):
     c, s = MaxyClient("BTC", min_interval=0.25), requests.Session()
     s.headers["user-agent"] = "kbot-research/0.1"
     until = time.time() + minutes * 60
     LOG.parent.mkdir(exist_ok=True)
-    tok, tk, close, strike, event = None, None, 0, None, None
+    tok, tk, close, strike, event, ptb = None, None, 0, None, None, None
+    try:
+        cl = Chainlink()
+    except Exception:
+        cl = None
     with open(LOG, "a") as fh:
         while time.time() < until:
             now = time.time()
@@ -88,6 +137,9 @@ def run(minutes, poll=1.0):
                     tk, close = mk["ticker"], _ts(mk["close_time"])
                     strike, event = mk.get("floor_strike"), mk.get("event_ticker")
                     tok = poly_tokens(s, close - 900)
+                    ptb = None
+                if ptb is None and cl is not None:
+                    ptb = cl.at(close - 900)
                 if not tok or close - now < 20:
                     time.sleep(poll)
                     continue
@@ -114,6 +166,10 @@ def run(minutes, poll=1.0):
                    "poly_age_s": round(t1 - up_t, 2) if up_t else None}
             if bx is not None and strike:
                 row.update(brti=round(bx, 2), strike=float(strike), sig=round(sig, 3))
+            if cl is not None and cl.last and t1 - cl.last[2] < 5:
+                row.update(cl=round(cl.last[1], 2), cl_age=round(t1 - cl.last[0], 2))
+                if ptb:
+                    row["ptb"] = round(ptb, 2)
             for name, pp, pn, kp, kn in (("upP_noK", up_a, up_n, k_no_ask, k_no_n),
                                          ("dnP_yesK", dn_a, dn_n, k_yes_ask, k_yes_n)):
                 row[name] = {"cost": round(pp + kp, 3), "net": round(1 - pp - kp - pfee(pp) - kfee(kp), 4),
@@ -124,6 +180,7 @@ def run(minutes, poll=1.0):
 
 
 RESULTS = Path("state/xvenue-results.json")
+SPLIT_RATE = 9 / 1326           # windows where the venues settled differently (kbot.basis_study)
 
 
 def settle(rows):
@@ -253,6 +310,9 @@ def report():
     splits = [tk for tk, (k, p) in res.items() if (k == "yes") != (p == "up")]
     print(f"\npaper trades (settled windows: {len(res)}, of which the venues split on {len(splits)}"
           f"{': ' + ', '.join(splits) if splits else ''}; 50 pairs max per entry, 500 per window):")
+    norm = [tk for tk in res if tk not in splits]
+    print(f"  per window: mean over the {len(norm)} normal windows | mean over split windows | expected at the "
+          f"historical split rate {SPLIT_RATE:.2%}")
     for thr in (0.005, 0.01, 0.02):
         for persist, zone, late in ((False, None, 0), (True, None, 0), (False, 0.10, 0), (False, 0.15, 0),
                                     (False, None, 1), (False, 0.10, 1), (False, 0.10, 2)):
@@ -261,13 +321,13 @@ def report():
                 continue
             pnl = sum(x[2] for x in t)
             pairs = sum(x[1] for x in t)
-            split = sum(1 for x in t if x[3] != 1)
             tag = ((" & still there next read" if persist else "") + (f" & P(end within $15) < {zone:.0%}" if zone else "")
                    + (f", filled {late} read(s) later (limit)" if late else ""))
-            print(f"  edge >= {thr * 100:.1f}c{tag:52}: {len(t):4d} entries, "
-                  f"{pairs:7.0f} pairs, P&L ${pnl:+8.2f} ({pnl / pairs * 100:+.2f}c/pair), "
-                  f"{len({x[0] for x in t})} windows, {split} entries where the venues settled differently")
-
+            gn = sum(x[2] for x in t if x[0] not in splits) / max(len(norm), 1)
+            gs = sum(x[2] for x in t if x[0] in splits) / max(len(splits), 1)
+            ev = (1 - SPLIT_RATE) * gn + SPLIT_RATE * gs if splits else gn
+            print(f"  edge >= {thr * 100:.1f}c{tag:52}: {len(t):4d} entries, {pairs:6.0f} pairs, "
+                  f"P&L ${pnl:+8.2f} | ${gn:+6.2f} | ${gs:+8.2f} | EV ${ev:+.2f}/window")
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
