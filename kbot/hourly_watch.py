@@ -14,8 +14,8 @@ lands between the strikes. Hourly strikes are $100 apart, so the nearest one is
 at most ~$50 from the 15-minute strike.
 
 During minutes :45-:59 of each hour this reads the 15-minute book and the live
-order books of the hourly strikes on either side of its strike about every
-1.5 s, paper only. (The events endpoint's per-market bid/ask is a snapshot that
+order books of the hourly strikes on either side of its strike, all legs in
+parallel, about every 0.6 s, paper only. (The events endpoint's per-market bid/ask is a snapshot that
 runs 15-20 s stale, so only /orderbook is used for prices.)
 
 History: for every hour close, the trade tapes of the 15-minute window and of
@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -43,7 +44,7 @@ from .data import KALSHI, MaxyClient, _ts
 from .maker_paper import levels
 
 LOG = Path("reports/hourly_watch.jsonl")
-NEAR = 2                        # hourly strikes read on each side of the 15-minute strike
+NEAR = 1                        # hourly strikes read on each side of the 15-minute strike
 
 
 def fee(p):
@@ -62,8 +63,10 @@ def top(book_side):
     return p, book_side[p]
 
 
-def run(minutes, poll=1.5):
+def run(minutes, poll=0.6):
     c = MaxyClient("BTC", min_interval=0.2)
+    legs = [MaxyClient("BTC", min_interval=0.2) for _ in range(1 + 2 * NEAR)]   # one client per leg: parallel reads
+    pool = ThreadPoolExecutor(len(legs))
     until = time.time() + minutes * 60
     LOG.parent.mkdir(exist_ok=True)
     mk, close, strikes = None, 0, []
@@ -90,10 +93,11 @@ def run(minutes, poll=1.5):
                     hs = sorted((float(m["floor_strike"]), m["ticker"]) for m in hs if m.get("floor_strike") is not None)
                     strikes = [x for x in hs if x[0] < k15][-NEAR:] + [x for x in hs if x[0] >= k15][:NEAR]
                 t0 = time.time()
-                yes, no = levels(c, mk["ticker"])
+                tks = [mk["ticker"]] + [tk for _, tk in strikes]
+                books = list(pool.map(lambda a: levels(*a), zip(legs, tks)))
+                yes, no = books[0]
                 h = []
-                for kd, tk in strikes:
-                    hy, hn = levels(c, tk)
+                for (kd, _), (hy, hn) in zip(strikes, books[1:]):
                     if hy and hn:
                         (yb, ybn), (nb, nbn) = top(hy), top(hn)
                         h.append([kd, yb, round(1 - nb, 4), ybn, nbn])   # strike, YES bid, YES ask, sizes
