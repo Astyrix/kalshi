@@ -171,8 +171,10 @@ small edge that belongs to the fastest bots. The rule was chosen from about
 30 variants on the same windows, so the live recorder
 (`kbot/xvenue_watch.py`: reads both books every second, logs BRTI, strike
 and volatility, and reports fills 1-2 reads late with a limit) is the real
-test. Live so far: one split in 19 windows, which dominates every rule's
-result; far more windows are needed.
+test. Live so far (27 settled windows, one split): in the 26 normal windows
+the zone rule filled 1-2 reads late with a limit made +$0.40 to +$0.50 a
+window (+0.7 to +0.85c/pair), in line with the historical +$0.46 to
++$0.57. The split window alone swung from -$49 to +$19 depending on timing.
 
 Polymarket restricts some regions, including the US on its main exchange;
 check your own eligibility before considering it. Fill risk (both legs
@@ -192,7 +194,13 @@ filling at the quoted prices) is not tested by paper trading.
   from 60-second changes of the averaged index. The earlier prior averaged
   the average again and measured volatility from smoothed 1-second changes,
   which made it badly overconfident (with 5 minutes left it said < 2% or
-  > 98% in 58% of windows and was wrong 8% of the time there). An online logistic layer then
+  > 98% in 58% of windows and was wrong 8% of the time there). Out of
+  sample the fixed prior cuts log-loss by a third or more at every horizon,
+  but it does not change the scalp model's results: in a walk-forward A/B
+  over Jul-Nov 2026 with identical rows except the two prior columns, the
+  correlation of predicted with realized P&L was +0.0971 (old) vs +0.0973
+  (fixed), with a handful of trades either way. LightGBM had already learned
+  around the overconfident input from time left and strike distance. An online logistic layer then
   blends that prior with the market's own price and RSI-14, MACD histogram,
   EMA 9/21 gap, 60-second velocity and book imbalance, learning the weights
   from outcomes.
