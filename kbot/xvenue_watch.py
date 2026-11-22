@@ -102,13 +102,17 @@ class Chainlink:
                 async with websockets.connect(RTDS, ssl=ctx, open_timeout=15, ping_interval=20) as ws:
                     await ws.send(json.dumps(sub))
                     async for m in ws:
-                        try:
+                        try:                       # on subscribe: a snapshot of the last minute, then 1 print/s
                             d = json.loads(m)["payload"]
-                            t, v = int(d["timestamp"]) // 1000, float(d["value"])
+                            pts = d["data"] if "data" in d else [d]
+                            pts = [(int(x["timestamp"]) // 1000, float(x["value"])) for x in pts]
                         except Exception:
                             continue
-                        self.px[t] = v
-                        self.last = (t, v, time.time())
+                        for t, v in pts:
+                            self.px[t] = v
+                        t, v = max(pts)
+                        if not self.last or t >= self.last[0]:
+                            self.last = (t, v, time.time())
                         for k in [k for k in self.px if k < t - 1200]:
                             del self.px[k]
             except Exception:
