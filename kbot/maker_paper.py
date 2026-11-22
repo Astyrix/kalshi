@@ -45,8 +45,9 @@ def maker_fee(p, qty, rate=0.0175):
 
 def levels(client, ticker, depth=10):
     d = client._get(f"{KALSHI}/markets/{ticker}/orderbook", {"depth": depth})["orderbook_fp"]
-    yes = {round(float(p), 2): float(q) for p, q in d.get("yes_dollars") or []}
-    no = {round(float(p), 2): float(q) for p, q in d.get("no_dollars") or []}
+    # prices can be sub-cent near the extremes (e.g. 0.995): keep 4 decimals, not 2
+    yes = {round(float(p), 4): float(q) for p, q in d.get("yes_dollars") or []}
+    no = {round(float(p), 4): float(q) for p, q in d.get("no_dollars") or []}
     return yes, no
 
 

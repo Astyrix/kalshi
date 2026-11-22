@@ -72,7 +72,7 @@ def trail_pnl(q, i, side, tp, sl, w, trail=None, slip=0.01):
 
 
 def dataset(days):
-    p = Path(f"data/rows-{int(days)}.pkl")
+    p = Path(f"data/rows-v2-{int(days)}.pkl")          # v2: physics prior on the settlement average
     ws = load_cached("BTC", days)
     if p.exists():
         with open(p, "rb") as fh:

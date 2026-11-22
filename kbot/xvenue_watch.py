@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -26,6 +27,7 @@ import requests
 
 from .data import MaxyClient, _ts
 from .maker_paper import levels
+from .model import brti_vol, final_moves, move_scale  # noqa: F401  (re-exported for basis_study)
 
 GAMMA = "https://gamma-api.polymarket.com"
 CLOB = "https://clob.polymarket.com"
@@ -57,12 +59,26 @@ def best_ask(s, token):
     return p, sum(q for a, q in asks if a == p), float(b.get("timestamp") or 0) / 1000
 
 
+ZONE = 15.0      # $: the two venues have only ever split when BRTI closed within ~$10 of Kalshi's strike
+def near_strike(dist, sig, left, band=ZONE):
+    """P(BRTI settles within `band` of Kalshi's strike), the zone where the two venues can
+    settle differently. dist = BRTI index - strike now, sig = brti_vol, left = seconds."""
+    m = dist + final_moves(sig, left)
+    return float(np.mean(np.abs(m) < band))
+
+
+def brti(c, event):
+    """(latest BRTI index, its 1 s volatility in $) from MaxyCharts."""
+    v = [p for _, p in c.index_series(event, minutes=11)]
+    return float(v[-1]), brti_vol(v)
+
+
 def run(minutes, poll=2.0):
     c, s = MaxyClient("BTC", min_interval=0.25), requests.Session()
     s.headers["user-agent"] = "kbot-research/0.1"
     until = time.time() + minutes * 60
     LOG.parent.mkdir(exist_ok=True)
-    tok, tk, close = None, None, 0
+    tok, tk, close, strike, event = None, None, 0, None, None
     with open(LOG, "a") as fh:
         while time.time() < until:
             now = time.time()
@@ -70,6 +86,7 @@ def run(minutes, poll=2.0):
                 if now >= close - 1:
                     mk = c.current_market()
                     tk, close = mk["ticker"], _ts(mk["close_time"])
+                    strike, event = mk.get("floor_strike"), mk.get("event_ticker")
                     tok = poly_tokens(s, close - 900)
                 if not tok or close - now < 20:
                     time.sleep(poll)
@@ -79,6 +96,10 @@ def run(minutes, poll=2.0):
                 up_a, up_n, up_t = best_ask(s, tok[0])
                 dn_a, dn_n, _ = best_ask(s, tok[1])
                 t1 = time.time()
+                try:
+                    bx, sig = brti(c, event)
+                except Exception:
+                    bx, sig = None, None
             except Exception:
                 time.sleep(poll)
                 continue
@@ -86,11 +107,13 @@ def run(minutes, poll=2.0):
                 time.sleep(poll)
                 continue
             kyb, knb = max(yes), max(no)                  # best YES bid, best NO bid on Kalshi
-            k_no_ask, k_no_n = round(1 - kyb, 2), yes[kyb]  # buying NO lifts resting YES bids
-            k_yes_ask, k_yes_n = round(1 - knb, 2), no[knb]
+            k_no_ask, k_no_n = round(1 - kyb, 4), yes[kyb]  # buying NO lifts resting YES bids
+            k_yes_ask, k_yes_n = round(1 - knb, 4), no[knb]
             row = {"ts": round(t0, 2), "read_s": round(t1 - t0, 2), "ticker": tk, "left": int(close - t0),
                    "k_yes_ask": k_yes_ask, "k_no_ask": k_no_ask, "p_up_ask": up_a, "p_dn_ask": dn_a,
                    "poly_age_s": round(t1 - up_t, 2) if up_t else None}
+            if bx is not None and strike:
+                row.update(brti=round(bx, 2), strike=float(strike), sig=round(sig, 3))
             for name, pp, pn, kp, kn in (("upP_noK", up_a, up_n, k_no_ask, k_no_n),
                                          ("dnP_yesK", dn_a, dn_n, k_yes_ask, k_yes_n)):
                 row[name] = {"cost": round(pp + kp, 3), "net": round(1 - pp - kp - pfee(pp) - kfee(kp), 4),
@@ -129,14 +152,41 @@ def settle(rows):
     return res
 
 
-def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=5.0):
+def attach_brti(rows):
+    """Give rows recorded before BRTI was logged live their BRTI / strike / volatility from the
+    cached per-second index (the same numbers MaxyCharts shows live at that moment)."""
+    need = {r["ticker"] for r in rows if "brti" not in r}
+    if not need:
+        return rows
+    from .sweep import load_cached
+    kw = {w.ticker: w for w in load_cached("BTC", 30) if w.ticker in need}
+    for r in rows:
+        w = kw.get(r["ticker"])
+        if "brti" in r or w is None or not w.strike or not len(w.index):
+            continue
+        idx = np.asarray(w.index, dtype=float)
+        j = np.searchsorted(idx[:, 0], r["ts"], side="right") - 1
+        if j < 30:
+            continue
+        r["brti"], r["strike"] = float(idx[j, 1]), float(w.strike)
+        r["sig"] = brti_vol(idx[:j + 1, 1])
+    return rows
+
+
+def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=5.0, zone=None):
     """Buy min(size, max_pairs) pairs whenever the net edge after fees clears thr
     (optionally only if it was also there on the previous read), at most one entry
-    per `gap` seconds and per_window pairs per window. Settled on both venues."""
+    per `gap` seconds and per_window pairs per window. Settled on both venues.
+    zone: skip reads where P(BRTI ends within $15 of the strike) >= zone (split risk)."""
     out, used, last, prev = [], {}, {}, {}
     for r in rows:
         if r["ticker"] not in res:
             continue
+        if not (0 < r["k_yes_ask"] < 1 and 0 < r["k_no_ask"] < 1):
+            continue                     # logged before sub-cent prices were kept (0.995 read as 1.00)
+        if zone is not None:
+            if "brti" not in r or near_strike(r["brti"] - r["strike"], r["sig"], r["left"]) >= zone:
+                continue
         kres, pwin = res[r["ticker"]]
         for name in ("upP_noK", "dnP_yesK"):
             x = r[name]
@@ -182,16 +232,20 @@ def report():
     if ages:
         print(f"Polymarket book age when read: median {np.median(ages):.2f}s, 90th pct {np.quantile(ages, .9):.2f}s")
     res = settle(rows)
-    print(f"\npaper trades (settled windows: {len(res)}; both venues' real results; 50 pairs max per entry):")
+    attach_brti(rows)
+    splits = [tk for tk, (k, p) in res.items() if (k == "yes") != (p == "up")]
+    print(f"\npaper trades (settled windows: {len(res)}, of which the venues split on {len(splits)}"
+          f"{': ' + ', '.join(splits) if splits else ''}; 50 pairs max per entry, 500 per window):")
     for thr in (0.005, 0.01, 0.02):
-        for persist in (False, True):
-            t = paper(rows, res, thr=thr, persist=persist)
+        for persist, zone in ((False, None), (True, None), (False, 0.10), (False, 0.15)):
+            t = paper(rows, res, thr=thr, persist=persist, zone=zone)
             if not t:
                 continue
             pnl = sum(x[2] for x in t)
             pairs = sum(x[1] for x in t)
             split = sum(1 for x in t if x[3] != 1)
-            print(f"  edge >= {thr * 100:.1f}c{' & still there 2 s later' if persist else '':26}: {len(t):4d} entries, "
+            tag = " & still there 2 s later" if persist else f" & P(end within $15) < {zone:.0%}" if zone else ""
+            print(f"  edge >= {thr * 100:.1f}c{tag:26}: {len(t):4d} entries, "
                   f"{pairs:7.0f} pairs, P&L ${pnl:+8.2f} ({pnl / pairs * 100:+.2f}c/pair), "
                   f"{len({x[0] for x in t})} windows, {split} entries where the venues settled differently")
 

@@ -24,10 +24,30 @@ def test_prior_is_confident_far_above_strike_late():
     assert s.p0 > 0.99
 
 
+def averaged_walk(n, step, seed=1):
+    """An index like MaxyCharts': the 60 s rolling average of a 1 s random walk."""
+    import numpy as np
+    b = 100_000 + np.cumsum(np.random.default_rng(seed).normal(0, step, n + 60))
+    a = np.convolve(b, np.ones(60) / 60, mode="valid")[:n]
+    return [(1_000_000 + i, float(v)) for i, v in enumerate(a)]
+
+
 def test_prior_near_half_at_strike():
-    idx = [(1_000_000 + i, 100_000 + (5 if i % 2 else -5)) for i in range(900)]
-    s = snapshot(idx, strike=100_000, close_ts=idx[-1][0] + 600, t=idx[-1][0])
+    idx = averaged_walk(900, 4.0)
+    s = snapshot(idx, strike=idx[-1][1], close_ts=idx[-1][0] + 600, t=idx[-1][0])
     assert 0.4 < s.p0 < 0.6
+    assert 2.0 < s.brti_sigma < 6.0          # recovers the walk's 1 s volatility from the averaged index
+
+
+def test_prior_uses_index_as_settlement():
+    # the index already is the settlement average: at the close its last print decides
+    idx = averaged_walk(900, 4.0, seed=2)
+    x = idx[-1][1]
+    assert snapshot(idx, x - 1, idx[-1][0], idx[-1][0]).p0 == 1.0
+    assert snapshot(idx, x + 1, idx[-1][0], idx[-1][0]).p0 == 0.0
+    # $100 above the strike with 10 s left is nearly certain; with 10 minutes left it is not
+    assert snapshot(idx, x - 100, idx[-1][0] + 10, idx[-1][0]).p0 > 0.97
+    assert 0.6 < snapshot(idx, x - 100, idx[-1][0] + 600, idx[-1][0]).p0 < 0.97
 
 
 def test_no_lookahead():

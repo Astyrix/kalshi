@@ -129,13 +129,47 @@ on both venues that list the same 15-minute BTC windows:
 | Live market making | `python -m kbot.maker_paper` | Resting bids at the back of the queue lost $41.60 over 3 markets even with no fee: we only get filled when the price runs through our quote. |
 | Polymarket wallets, 14 days, 8,677 wallets, $41M | `python -m kbot.poly_study` | Taker wallets lost $74k in total. Pair buyers (both outcomes for < $1) make 2-3% gross, which Polymarket's ~2.5% fee cancels. |
 | What winners do differently, 7 days | `python -m kbot.poly_deep` | Winners buy with the last 30 s of movement, and fair value moves their way afterwards (+0.9c at 120 s). Losers buy against it (-3.2c at 120 s) and lose 7.5c/share. A simple spot fair-value model is anti-predictive: the market knows more. |
-| **Cross-venue pairs** | `python -m kbot.xvenue_watch` | Buy one outcome on Polymarket and the other on Kalshi when the pair costs < $1 after both fees. History (150 windows; Polymarket's tape is ~3 s late, so aligned): +3.5c/pair on ~8% of Polymarket trades. Live (books read 0.35 s apart): positive in the first settled windows. **Not yet proven.** |
+| **Cross-venue pairs** | `python -m kbot.xvenue_watch`, `python -m kbot.basis_study --hist` | Buy one outcome on Polymarket and the other on Kalshi when the pair costs < $1 after both fees. It pays $1 unless the venues settle differently. Positive expected value only after filtering out the split risk below; see the next section. |
 
-The two venues settle on different price feeds (Chainlink TWAP vs CF
-BRTI) and disagreed in about 2% of windows, so a pair is not risk-free. In
-those windows "both legs win" and "both legs lose" were about equally
-common. Polymarket restricts some regions, including the US on its main
-exchange; check your own eligibility before considering it.
+### Basis risk: when the two venues settle differently
+
+Polymarket settles on Chainlink BTC/USD, Kalshi on CF BRTI, and each venue
+takes its strike from its own feed at the open. Over 1,326 windows settled
+on both (`python -m kbot.basis_study`):
+
+- They split in 9 windows (0.68%), and only when BRTI closed within $10 of
+  Kalshi's strike (17.5% of windows that closed within $5, 4.9% at $5-10,
+  none further away). "The BRTI move is smaller than the change in the
+  Chainlink-BRTI gap over the window" explains 100% of the splits.
+- The gap (median +$1, 5-95% range -$6 to +$9) changes by a median $2.27
+  in a window (99th percentile $13). It mean-reverts: correlation -0.45
+  between its level at the open and its change.
+- A split is not a coin flip. A pair (Polymarket Up + Kalshi NO) is worth
+  exactly $1 + P(Polymarket Up) - P(Kalshi YES), so it looks cheap exactly
+  when the venues expect their feeds to disagree. In the one live split
+  window the pairs looked 28-89c underpriced in the last minute, and every
+  one of them lost both legs.
+
+On the historical tapes (every second a Polymarket taker and a Kalshi taker
+bought opposite sides, 155 windows, split windows reweighted to 0.68%;
+`python -m kbot.basis_study --hist`), per window at up to 500 pairs:
+
+| Rule | EV / window | Loss in a split window | Split rate that breaks even |
+|---|---|---|---|
+| edge >= 1c after fees | +$3.93 | -$247 | 2.2% |
+| edge - P(split) >= 0.5c | +$4.81 | -$191 | 3.1% |
+| edge >= 0.5c and P(BRTI ends within $15 of strike) < 10% | +$2.93 | -$9 | 25% |
+
+The last rule gives up about 40% of the expected value to nearly remove the
+tail, so it still works if splits turn out many times more common than seen.
+It was chosen from about 30 variants on the same windows, so the live
+recorder (`kbot/xvenue_watch.py`, which now logs BRTI, strike and volatility
+on every read) is the real test. Live so far: one split in 19 windows; the
+raw 0.5c rule is flat (+$0.81), the zone rule +$42.10 (+1.7c/pair).
+
+Polymarket restricts some regions, including the US on its main exchange;
+check your own eligibility before considering it. Fill risk (both legs
+filling at the quoted prices) is not tested by paper trading.
 
 ## How it works
 
@@ -143,9 +177,15 @@ exchange; check your own eligibility before considering it.
   second; Kalshi quotes, book and trades. Requests are rate-limited (0.3 s
   apart by default).
 - **Model (`kbot/model.py`).** A physics prior: settlement is the 60-second
-  average of BRTI before close compared with the strike, so P(UP) comes from
-  distance to strike against volatility over the time left (the part of the
-  average already printed is known exactly). An online logistic layer then
+  average of BRTI before close compared with the strike. MaxyCharts' index
+  already is that average (its print at the close equals the settlement in
+  every cached window), so P(UP) = P(index now + remaining move > strike),
+  with the remaining move drawn from an empirical table of standardized final
+  moves fitted on the oldest 60 days (`state/brti-z.json`), and volatility
+  from 60-second changes of the averaged index. The earlier prior averaged
+  the average again and measured volatility from smoothed 1-second changes,
+  which made it badly overconfident (with 5 minutes left it said < 2% or
+  > 98% in 58% of windows and was wrong 8% of the time there). An online logistic layer then
   blends that prior with the market's own price and RSI-14, MACD histogram,
   EMA 9/21 gap, 60-second velocity and book imbalance, learning the weights
   from outcomes.
