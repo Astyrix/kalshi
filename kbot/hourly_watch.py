@@ -166,6 +166,24 @@ def report():
             n += q
             last[(r["ticker"], kind, kd)] = r["ts"]
     print(f"paper, every box under $1 (50 per entry, one per 5 s per strike): {n:.0f} boxes, P&L ${pnl:+.2f}")
+    # boxes just above $1 are a bet that S lands between the strikes (pays $2): did that pay?
+    print("one box per 5 s per strike, by cost (pays $2 when S lands between the strikes):")
+    for lo, hi in ((0.95, 1.0), (1.0, 1.02), (1.02, 1.05), (1.05, 1.1), (1.1, 1.2), (1.2, 2.0)):
+        got, last = [], {}
+        for r in rows:
+            if r["ticker"] not in final:
+                continue
+            S = final[r["ticker"]]
+            for kind, kd, cst, sz in combos(r):
+                key = (r["ticker"], kind, kd)
+                if not lo <= cst < hi or r["ts"] - last.get(key, 0) < 5:
+                    continue
+                last[key] = r["ts"]
+                got.append((r["ticker"], 1 + (r["k15"] <= S <= kd if kind == "yes15_noH" else kd < S < r["k15"]) - cst))
+        if got:
+            v = np.array([g[1] for g in got])
+            print(f"  ${lo:.2f}-{hi:.2f}: {len(v):5d} boxes in {len({g[0] for g in got}):3d} closes, "
+                  f"paid $2 {np.mean(v > 0.5):5.1%}, mean P&L {v.mean() * 100:+.2f}c")
 
 
 HIST = Path("data/cache/BOX")
