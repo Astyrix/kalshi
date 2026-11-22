@@ -84,9 +84,11 @@ RTDS = "wss://ws-live-data.polymarket.com"
 
 class Chainlink:
     """Polymarket's live Chainlink BTC/USD stream (the feed its 15-minute markets settle on),
-    one print per second, kept for the last 20 minutes in a background thread. Polymarket only
-    publishes a window's strike (priceToBeat) after it closes, so the strike live is the print
-    stamped at the window's open second."""
+    one print per second (about 2 s behind spot), kept for the last 20 minutes in a background
+    thread. Polymarket's strike (priceToBeat, published only after the window closes) and final
+    price are not the print at the open/close but its 60-second average before it, like Kalshi's
+    BRTI average: the mean of the 60 prints before the open matched priceToBeat to ~$0.6, the
+    print at the open missed by $10-45."""
 
     def __init__(self):
         self.px, self.last = {}, None              # {second: price}, (second, price, received)
@@ -118,8 +120,10 @@ class Chainlink:
             except Exception:
                 await asyncio.sleep(3)
 
-    def at(self, sec):
-        return self.px.get(sec)
+    def avg(self, end, n=60):
+        """Mean of the prints in [end - n, end), or None if more than 10% are missing."""
+        xs = [self.px[k] for k in range(int(end) - n, int(end)) if k in self.px]
+        return sum(xs) / len(xs) if len(xs) >= 0.9 * n else None
 
 
 def run(minutes, poll=1.0):
@@ -143,7 +147,7 @@ def run(minutes, poll=1.0):
                     tok = poly_tokens(s, close - 900)
                     ptb = None
                 if ptb is None and cl is not None:
-                    ptb = cl.at(close - 900)
+                    ptb = cl.avg(close - 900)
                 if not tok or close - now < 20:
                     time.sleep(poll)
                     continue
@@ -171,7 +175,10 @@ def run(minutes, poll=1.0):
             if bx is not None and strike:
                 row.update(brti=round(bx, 2), strike=float(strike), sig=round(sig, 3))
             if cl is not None and cl.last and t1 - cl.last[2] < 5:
+                a60 = cl.avg(cl.last[0] + 1)
                 row.update(cl=round(cl.last[1], 2), cl_age=round(t1 - cl.last[0], 2))
+                if a60:
+                    row["cl60"] = round(a60, 2)                # comparable to the BRTI index (also a 60 s average)
                 if ptb:
                     row["ptb"] = round(ptb, 2)
             for name, pp, pn, kp, kn in (("upP_noK", up_a, up_n, k_no_ask, k_no_n),
@@ -250,7 +257,7 @@ def two_feed(rows, res):
     (gap_T - gap_t = a + b * gap_t + noise), then values each pair by simulation:
     E[pay] = P(Polymarket Up) + 1 - P(Kalshi YES) for Polymarket Up + Kalshi NO, with the
     final BRTI move drawn from the empirical table and the gap change from the fit."""
-    live = [r for r in rows if "cl" in r and "ptb" in r and "brti" in r and r["ticker"] in res]
+    live = [r for r in rows if "cl60" in r and "ptb" in r and "brti" in r and r["ticker"] in res]
     if not live:
         print("\ntwo-feed: no settled window with both feeds logged yet")
         return None
@@ -265,7 +272,7 @@ def two_feed(rows, res):
     print(f"  our Chainlink strike vs Polymarket's priceToBeat: median |diff| ${np.median(err):.2f}, max ${max(err):.2f}")
     print(f"  Kalshi strike from MaxyCharts vs Kalshi's: max |diff| "
           f"${max(abs(next(r['strike'] for r in live if r['ticker'] == tk) - fin[tk][0]) for tk in wins):.2f}")
-    g_t = np.array([(r["cl"] - r["ptb"]) - (r["brti"] - r["strike"]) for r in live])
+    g_t = np.array([(r["cl60"] - r["ptb"]) - (r["brti"] - r["strike"]) for r in live])
     g_T = np.array([(fin[r["ticker"]][3] - fin[r["ticker"]][2]) - (fin[r["ticker"]][1] - fin[r["ticker"]][0])
                     for r in live])
     left = np.array([r["left"] for r in live])

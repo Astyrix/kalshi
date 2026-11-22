@@ -191,9 +191,39 @@ own strike. The recorder now also logs Polymarket's live Chainlink price
 (its real-time data socket) and the window's Chainlink strike, so the split
 risk can be measured from both feeds instead of guessed from one.
 
+Polymarket's strike (priceToBeat) and final price are not the Chainlink print
+at the open and close. They match its 60-second average before them (to
+about $0.60 over the first windows checked; the print at the open was $10-45
+off). So both venues settle on a 60-second average of their own feed, and a
+window's final price is always the next window's strike (1,338 of 1,338).
+
 Polymarket restricts some regions, including the US on its main exchange;
 check your own eligibility before considering it. Fill risk (both legs
 filling at the quoted prices) is not tested by paper trading.
+
+### Same-venue box: the 15-minute window vs Kalshi's hourly markets
+
+The 15-minute window that closes on the hour and Kalshi's hourly "BTC above
+$X" markets (KXBTCD, strikes $100 apart) settle on the same number, the
+60-second BRTI average before the hour. So in the last 15 minutes of every
+hour:
+
+- 15m YES + hourly NO at the next strike up pays $1, or $2 if BTC settles
+  between the two strikes;
+- 15m NO + hourly YES at the next strike down, likewise.
+
+That pays at least $1 whatever BTC does, with no second venue and no basis
+risk. On the tapes of 164 hour closes (7 days, `python -m kbot.hourly_watch
+--hist`), takers bought both legs for under $1 after fees in the same second
+in 89 closes: +$7.34 an hour at 50 boxes per entry, never a losing hour.
+Arriving 1 s later with a limit at those prices, takers traded both legs
+again at or below them in only 27 closes (+$0.23 an hour). That is a
+pessimistic test (a quote can rest without trading), so the live recorder
+(`python -m kbot.hourly_watch`) reads both live order books every 1.5 s in
+the last 15 minutes of each hour. Note: the per-market bid/ask on Kalshi's
+events listing is a snapshot 15-20 s stale; only `/orderbook` is live. The
+first live hour, read from that snapshot, showed a $0.985 box that was not
+real.
 
 ## How it works
 

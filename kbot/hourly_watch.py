@@ -13,18 +13,29 @@ riskless; just above $1 it can still be worth it, since it pays $2 when S
 lands between the strikes. Hourly strikes are $100 apart, so the nearest one is
 at most ~$50 from the 15-minute strike.
 
-During minutes :45-:59 of each hour this reads the 15-minute book and every
-hourly strike's top of book (one request) about every 2 s, paper only.
+During minutes :45-:59 of each hour this reads the 15-minute book and the live
+order books of the hourly strikes on either side of its strike about every
+1.5 s, paper only. (The events endpoint's per-market bid/ask is a snapshot that
+runs 15-20 s stale, so only /orderbook is used for prices.)
+
+History: for every hour close, the trade tapes of the 15-minute window and of
+the two hourly strikes around its strike, last 15 minutes. A box "was there"
+in a second when takers bought both of its legs in that second; filled d
+seconds later means takers again traded both legs at or below those prices.
 
   python -m kbot.hourly_watch --minutes 115
   python -m kbot.hourly_watch --report
+  python -m kbot.hourly_watch --fetch-hist 7     # download tapes (about 20 s per hour close)
+  python -m kbot.hourly_watch --hist
 """
 from __future__ import annotations
 
 import argparse
 import json
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -32,7 +43,7 @@ from .data import KALSHI, MaxyClient, _ts
 from .maker_paper import levels
 
 LOG = Path("reports/hourly_watch.jsonl")
-BAND = 400.0                    # $: hourly strikes logged around the 15-minute strike
+NEAR = 2                        # hourly strikes read on each side of the 15-minute strike
 
 
 def fee(p):
@@ -46,11 +57,16 @@ def hourly(c):
     return ev, ev["markets"]
 
 
-def run(minutes, poll=2.0):
-    c = MaxyClient("BTC", min_interval=0.25)
+def top(book_side):
+    p = max(book_side)
+    return p, book_side[p]
+
+
+def run(minutes, poll=1.5):
+    c = MaxyClient("BTC", min_interval=0.2)
     until = time.time() + minutes * 60
     LOG.parent.mkdir(exist_ok=True)
-    mk, close = None, 0
+    mk, close, strikes = None, 0, []
     with open(LOG, "a") as fh:
         while time.time() < until:
             now = time.time()
@@ -61,27 +77,37 @@ def run(minutes, poll=2.0):
                 if now >= close - 1 or mk is None:
                     mk = c.current_market()
                     close = _ts(mk["close_time"])
+                    strikes = []
                 if close % 3600 or close - now < 3:
                     time.sleep(poll)
                     continue
+                k15 = float(mk["floor_strike"])
+                if not strikes:                            # this hour's strikes (tickers only; prices come from books)
+                    ev, hs = hourly(c)
+                    if _ts(hs[0]["close_time"]) != close:
+                        time.sleep(poll)
+                        continue
+                    hs = sorted((float(m["floor_strike"]), m["ticker"]) for m in hs if m.get("floor_strike") is not None)
+                    strikes = [x for x in hs if x[0] < k15][-NEAR:] + [x for x in hs if x[0] >= k15][:NEAR]
                 t0 = time.time()
                 yes, no = levels(c, mk["ticker"])
-                ev, hs = hourly(c)
+                h = []
+                for kd, tk in strikes:
+                    hy, hn = levels(c, tk)
+                    if hy and hn:
+                        (yb, ybn), (nb, nbn) = top(hy), top(hn)
+                        h.append([kd, yb, round(1 - nb, 4), ybn, nbn])   # strike, YES bid, YES ask, sizes
                 t1 = time.time()
             except Exception:
                 time.sleep(poll)
                 continue
-            if not yes or not no or _ts(hs[0]["close_time"]) != close:
+            if not yes or not no or not h:
                 time.sleep(poll)
                 continue
-            k15 = float(mk["floor_strike"])
-            kyb, knb = max(yes), max(no)
-            row = {"ts": round(t0, 2), "read_s": round(t1 - t0, 2), "ticker": mk["ticker"], "event": ev["event_ticker"],
-                   "left": int(close - t0), "k15": k15,
-                   "yes_ask": round(1 - knb, 4), "yes_ask_n": no[knb], "no_ask": round(1 - kyb, 4), "no_ask_n": yes[kyb],
-                   "h": [[float(m["floor_strike"]), float(m["yes_bid_dollars"]), float(m["yes_ask_dollars"]),
-                          float(m.get("yes_bid_size_fp") or 0), float(m.get("yes_ask_size_fp") or 0)]
-                         for m in hs if m.get("floor_strike") is not None and abs(m["floor_strike"] - k15) < BAND]}
+            (kyb, kybn), (knb, knbn) = top(yes), top(no)
+            row = {"ts": round(t0, 2), "read_s": round(t1 - t0, 2), "ticker": mk["ticker"], "left": int(close - t0),
+                   "k15": k15, "yes_ask": round(1 - knb, 4), "yes_ask_n": knbn, "no_ask": round(1 - kyb, 4),
+                   "no_ask_n": kybn, "h": h}
             fh.write(json.dumps(row) + "\n")
             fh.flush()
             time.sleep(max(0.0, poll - (time.time() - t0)))
@@ -142,12 +168,127 @@ def report():
     print(f"paper, every box under $1 (50 per entry, one per 5 s per strike): {n:.0f} boxes, P&L ${pnl:+.2f}")
 
 
+HIST = Path("data/cache/BOX")
+
+
+def _trades(c, ticker, lo, hi):
+    rows, cur = [], None
+    for url in (f"{KALSHI}/markets/trades", f"{KALSHI}/historical/trades"):
+        for _ in range(60):
+            q = {"ticker": ticker, "limit": 1000, "min_ts": lo, "max_ts": hi}
+            if cur:
+                q["cursor"] = cur
+            d = c._get(url, q)
+            tr = d.get("trades") or []
+            rows += [(datetime.fromisoformat(x["created_time"].replace("Z", "+00:00")).timestamp(),
+                      float(x["yes_price_dollars"]), float(x.get("count_fp") or 0), x.get("taker_side") == "yes")
+                     for x in tr]
+            cur = d.get("cursor")
+            if not cur or not tr:
+                break
+        if rows:
+            break
+        cur = None
+    return sorted(rows)
+
+
+def fetch_hist(days):
+    c = MaxyClient("BTC", min_interval=0.3)
+    now = time.time()
+    ms = [m for m in c.settled_markets(int(now - days * 86400), int(now)) if _ts(m["close_time"]) % 3600 == 0]
+    HIST.mkdir(parents=True, exist_ok=True)
+    for m in ms:
+        close, p = _ts(m["close_time"]), HIST / f"{m['ticker']}.json"
+        if p.exists():
+            continue
+        ev = f"KXBTCD-{datetime.fromtimestamp(close, ZoneInfo('America/New_York')):%y%b%d%H}".upper()
+        try:
+            e = c._get(f"{KALSHI}/events/{ev}", {"with_nested_markets": "true"})
+            hs = e.get("markets") or e.get("event", {}).get("markets") or []
+            k15 = float(m["floor_strike"])
+            ks = sorted(float(h["floor_strike"]) for h in hs if h.get("floor_strike") is not None)
+            tk = {float(h["floor_strike"]): h["ticker"] for h in hs if h.get("floor_strike") is not None}
+            rec = {"close": close, "k15": k15, "S": float(m["expiration_value"]), "event": ev,
+                   "up": min((k for k in ks if k >= k15), default=None),
+                   "dn": max((k for k in ks if k < k15), default=None),
+                   "t15": _trades(c, m["ticker"], close - 900, close)}
+            for name in ("up", "dn"):
+                rec["t_" + name] = _trades(c, tk[rec[name]], close - 900, close) if rec[name] is not None else []
+            p.write_text(json.dumps(rec))
+            print(m["ticker"], ev, len(rec["t15"]), len(rec["t_up"]), len(rec["t_dn"]), flush=True)
+        except Exception as ex:
+            print("fail", m["ticker"], ev, str(ex)[:80], flush=True)
+
+
+def _taken(tr, side_yes, lo, hi):
+    """{second: [cheapest price takers paid for that side, contracts traded at it]} (NO = 1 - YES price)."""
+    out = {}
+    for t, y, n, ty in tr:
+        if ty != side_yes or not lo <= t < hi:
+            continue
+        s, px = int(t), (y if side_yes else round(1 - y, 4))
+        if not 0 < px < 1:
+            continue
+        if s not in out or px < out[s][0] - 1e-9:
+            out[s] = [px, n]
+        elif abs(px - out[s][0]) < 1e-9:
+            out[s][1] += n
+    return out
+
+
+def hist():
+    files = sorted(HIST.glob("*.json"))
+    if not files:
+        print("no history: run --fetch-hist first")
+        return
+    res = {}
+    for p in files:
+        r = json.loads(p.read_text())
+        close, k15, S = r["close"], r["k15"], r["S"]
+        lo, hi = close - 900, close - 3
+        for k, leg15, legH, kind in ((r["up"], _taken(r["t15"], True, lo, hi), _taken(r["t_up"], False, lo, hi), "yes"),
+                                      (r["dn"], _taken(r["t15"], False, lo, hi), _taken(r["t_dn"], True, lo, hi), "no")):
+            if k is None:
+                continue
+            pay = 1 + ((k15 <= S <= k) if kind == "yes" else (k < S < k15))
+            for d in (0, 1, 2, 5):
+                last = -99
+                for s in sorted(set(leg15) & set(legH)):
+                    a, b = leg15[s][0], legH[s][0]
+                    if a + b + fee(a) + fee(b) >= 1 or s - last < 5:
+                        continue
+                    x, y = (leg15[s], legH[s]) if d == 0 else (leg15.get(s + d), legH.get(s + d))
+                    if not x or not y or x[0] > a + 1e-9 or y[0] > b + 1e-9:
+                        continue
+                    q = min(x[1], y[1], 50)
+                    if q < 1:
+                        continue
+                    res.setdefault(d, []).append((p.stem, q, q * (pay - x[0] - y[0] - fee(x[0]) - fee(y[0]))))
+                    last = s
+    n = len(files)
+    print(f"{n} hour closes; boxes that cost < $1 after fees on the tape, one entry per 5 s, up to 50 boxes:")
+    for d, v in sorted(res.items()):
+        pnl, q = sum(x[2] for x in v), sum(x[1] for x in v)
+        print(f"  {'at the signal' if not d else f'filled {d} s later (limit)':28}: {len(v):4d} entries in "
+              f"{len({x[0] for x in v}):3d} closes, {q:6.0f} boxes, P&L ${pnl:+8.2f} ({pnl / q * 100:+.2f}c/box), "
+              f"${pnl / n:+.2f} per hour")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--minutes", type=float, default=115)
     ap.add_argument("--report", action="store_true")
+    ap.add_argument("--fetch-hist", type=float, default=0, metavar="DAYS")
+    ap.add_argument("--hist", action="store_true")
     a = ap.parse_args(argv)
-    report() if a.report else run(a.minutes)
+    if a.fetch_hist:
+        fetch_hist(a.fetch_hist)
+    elif a.hist:
+        hist()
+    elif a.report:
+        report()
+    else:
+        run(a.minutes)
 
 
 if __name__ == "__main__":
