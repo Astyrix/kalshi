@@ -171,20 +171,22 @@ small edge that belongs to the fastest bots. The rule was chosen from about
 30 variants on the same windows, so the live recorder
 (`kbot/xvenue_watch.py`: reads both books every second, logs BRTI, strike
 and volatility, and reports fills 1-2 reads late with a limit) is the real
-test. Live so far (35 settled windows, one split; per window, expected value
+test. Live so far (142 settled windows, two splits; per window, expected value
 uses the historical 0.68% split rate):
 
-| Rule (edge >= 0.5c), live | Normal windows | The split window | Expected |
+| Rule (edge >= 0.5c), live | Normal windows | Split windows (mean of 2) | Expected |
 |---|---|---|---|
-| at signal | +$5.94 | -$111 | +$5.14 |
-| zone < 10%, at signal | +$2.63 | -$21 | +$2.47 |
-| filled 1 read later, limit | +$2.13 | -$98 | +$1.45 |
-| zone < 10%, 1 read later, limit | +$0.71 | -$49 | +$0.38 |
-| zone < 10%, 2 reads later, limit | +$0.42 | +$19 | +$0.54 |
+| at signal | +$5.58 | -$92 | +$4.92 |
+| zone < 10%, at signal | +$2.40 | -$17 | +$2.27 |
+| filled 1 read later, limit | +$1.87 | -$50 | +$1.52 |
+| zone < 10%, 1 read later, limit | +$0.63 | +$0.66 | +$0.63 |
+| zone < 10%, 2 reads later, limit | +$0.36 | +$9 | +$0.42 |
 
-Not one of the 34 normal windows lost money under any rule, and the zone
-rule's late fills match history (+$0.4-0.7 vs +$0.46). Late fills without
-the zone rule did better live than on the tapes (+$2.13 vs about $0), so the
+A normal window cannot lose: both legs together pay exactly $1, and a fill is
+only counted at a net edge of at least zero. The zone rule's late fills match
+history (+$0.4-0.6 vs +$0.46). Late fills without the zone rule did better
+live than on the tapes (+$1.87 vs about $0), and their expected value has held
+at +$1.5-1.6 a window from 104 to 142 windows, so the
 zone filter may be giving up too much. It only looks at BRTI against
 Kalshi's strike; a split needs the other feed on the other side of its
 own strike. The recorder now also logs Polymarket's live Chainlink price
@@ -235,10 +237,12 @@ events listing is a snapshot 15-20 s stale; only `/orderbook` is live. The
 first live hour, read from that snapshot, showed a $0.985 box that was not
 real.
 
-Live so far (9 hour closes, 10,292 reads, all legs read in parallel in a
-median 0.14 s): not one box under $1 (cheapest $1.004, median $1.13). Boxes
-at $1.00-1.20 lost 1.6-11c each; above $1.20 they were +4c with $2 paid 21% of
-the time, too few hours to mean anything. The riskless boxes on the tape last
+Live so far (23 hour closes, 29,170 reads, all legs read in parallel in a
+median 0.12 s): boxes under $1 showed up in 2 closes, for 7 reads (cheapest
+$0.963, but only 8-97 contracts deep). Taking 50 per entry, at most one per
+5 s, made 76 boxes and +$1.06 on paper, all riskless ($1 paid; $2 never). Boxes
+at $1.00-2.00 lost 0.7-4.8c each on average, $1.20+ included (paid $2 18% of
+the time). The riskless boxes on the tape last
 well under a second: a bot polling through MaxyCharts does not see them.
 
 Also tried on the 164 tape hours, neither worth trading: resting an order
