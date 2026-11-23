@@ -235,6 +235,19 @@ events listing is a snapshot 15-20 s stale; only `/orderbook` is live. The
 first live hour, read from that snapshot, showed a $0.985 box that was not
 real.
 
+Live so far (9 hour closes, 10,292 reads, all legs read in parallel in a
+median 0.14 s): not one box under $1 (cheapest $1.004, median $1.13). Boxes
+at $1.00-1.20 lost 1.6-11c each; above $1.20 they were +4c with $2 paid 21% of
+the time, too few hours to mean anything. The riskless boxes on the tape last
+well under a second: a bot polling through MaxyCharts does not see them.
+
+Also tried on the 164 tape hours, neither worth trading: resting an order
+on one leg and hedging on the other is adversely selected (70-80% of fills
+end with the box above $1; positive only through rare $2 payouts, not
+significant); and the hourly market lags the 15-minute one by 1-2 s
+(correlation of price changes 0.39 at once, 0.14 one second later), but
+taking stale hourly quotes after a 15-minute jump loses after fees.
+
 ## How it works
 
 - **Data (`kbot/data.py`).** The BRTI index Kalshi settles on, second by
