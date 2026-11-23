@@ -77,7 +77,8 @@ def _emit(d, fh):
 
 class Paper:
     def __init__(self, model_path="state/trader-model.pkl", margin=0.02, qty=10, days=35,
-                 state=Path("state"), reports=Path("reports"), rate=0.3, retrain_hour=6, max_price=0.25):
+                 state=Path("state"), reports=Path("reports"), rate=0.3, retrain_hour=6, max_price=0.25,
+                 aux=False):
         with open(model_path, "rb") as fh:
             self.m = pickle.load(fh)
         self.names = self.m["names"]
@@ -92,7 +93,10 @@ class Paper:
         self.last_entry = {}
         self.showing: dict[str, list] = {}
         self.shadows: list[dict] = []          # trailing-exit shadows still running
-        self.record_ticks = True               # save the book every 5s for exit research
+        # aux: a second trader beside the main one (another price cap, say); it
+        # leaves the shared tick log and market cache to the main trader
+        self.aux = aux
+        self.record_ticks = not aux            # save the book every 5s for exit research
         # second strategy, no model: buy any side priced <= rule_cap with 2-3 min
         # left and hold to settlement (backtest: +$1,465 over 12 months, 11/12 up)
         self.rule_cap = 0.0      # off: its backtest had look-ahead bias (see README)
@@ -548,7 +552,8 @@ class Paper:
                         except Exception:
                             pass
                         try:
-                            self._cache_recent()
+                            if not self.aux:
+                                self._cache_recent()
                         except Exception:
                             pass
                     self._maybe_retrain(fh)
@@ -582,9 +587,9 @@ def rule_report(reports=Path("reports")):
             print(f"  {side:5} {len(w):4d} trades  P&L ${w.sum():8.2f}  win {np.mean(w > 0):.1%}")
 
 
-def report(state=Path("state")):
+def report(state=Path("state"), reports=Path("reports")):
     """Paper results so far: totals, by price bucket, by setup, by pattern."""
-    rule_report()
+    rule_report(reports)
     sp = state / "paper-summary.json"
     if not sp.exists():
         print("no paper trades yet")
@@ -617,7 +622,7 @@ def report(state=Path("state")):
         thin = [r for r in tk if r.get("top_size_at_entry") is not None and r["top_size_at_entry"] < 10]
         print(f"  entries where fewer than 10 contracts were offered at the best ask: {len(thin)}")
         sh = {}
-        tp = Path("reports/paper_trail.jsonl")
+        tp = reports / "paper_trail.jsonl"
         if tp.exists():
             for l in tp.read_text().splitlines():
                 d2 = json.loads(l)

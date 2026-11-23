@@ -49,17 +49,22 @@ def main(argv=None):
     pp.add_argument("--history-days", type=float, default=35)
     pp.add_argument("--max-price", type=float, default=0.25, help="only buy contracts at or under this ask")
     pp.add_argument("--retrain-hour", type=int, default=6, help="UTC hour to retrain daily (-1 = never)")
-    sub.add_parser("paper-report", help="summarize paper trades and the live pattern scoreboard")
+    pp.add_argument("--reports", default="reports", help="folder for the trade logs")
+    pp.add_argument("--aux", action="store_true",
+                    help="second trader beside the main one: no tick log, no market caching")
+    pr = sub.add_parser("paper-report", help="summarize paper trades and the live pattern scoreboard")
+    pr.add_argument("--reports", default="reports")
 
     a = ap.parse_args(argv)
     if a.cmd == "paper":
         from .paper import Paper
-        Paper(a.model, a.margin, a.qty, a.history_days, Path(a.state), Path("reports"), a.rate,
-              None if a.retrain_hour < 0 else a.retrain_hour, a.max_price).run(a.minutes)
+        Path(a.reports).mkdir(parents=True, exist_ok=True)
+        Paper(a.model, a.margin, a.qty, a.history_days, Path(a.state), Path(a.reports), a.rate,
+              None if a.retrain_hour < 0 else a.retrain_hour, a.max_price, a.aux).run(a.minutes)
         return
     if a.cmd == "paper-report":
         from .paper import report
-        report(Path(a.state))
+        report(Path(a.state), Path(a.reports))
         return
     state = Path(a.state); state.mkdir(exist_ok=True)
     cfg = Config(min_p=a.min_p, min_ev=a.min_ev, take_profit=a.take_profit,
