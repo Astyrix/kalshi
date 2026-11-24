@@ -176,27 +176,58 @@ small edge that belongs to the fastest bots. The rule was chosen from about
 30 variants on the same windows, so the live recorder
 (`kbot/xvenue_watch.py`: reads both books every second, logs BRTI, strike
 and volatility, and reports fills 1-2 reads late with a limit) is the real
-test. Live so far (221 settled windows, two splits; per window, expected value
+test. Live so far (250 settled windows, three splits; per window, expected value
 uses the historical 0.68% split rate):
 
-| Rule (edge >= 0.5c), live | Normal windows | Split windows (mean of 2) | Expected |
+| Rule (edge >= 0.5c), live | Normal windows | Split windows (mean of 3) | Expected |
 |---|---|---|---|
-| at signal | +$5.43 | -$92 | +$4.77 |
-| zone < 10%, at signal | +$2.68 | -$17 | +$2.55 |
-| filled 1 read later, limit | +$1.81 | -$50 | +$1.46 |
-| zone < 10%, 1 read later, limit | +$0.66 | +$0.66 | +$0.66 |
-| zone < 10%, 2 reads later, limit | +$0.48 | +$9 | +$0.55 |
+| at signal | +$5.56 | -$221 | +$4.03 |
+| zone < 10%, at signal | +$2.72 | -$124 | +$1.86 |
+| filled 1 read later, limit | +$1.80 | -$160 | +$0.70 |
+| zone < 10%, 1 read later, limit | +$0.65 | -$13 | +$0.55 |
+| zone < 10%, 2 reads later, limit | +$0.48 | +$5 | +$0.51 |
 
 A normal window cannot lose: both legs together pay exactly $1, and a fill is
 only counted at a net edge of at least zero. The zone rule's late fills match
 history (+$0.4-0.6 vs +$0.46). Late fills without the zone rule did better
-live than on the tapes (+$1.81 vs about $0), and their expected value has held
-at +$1.5-1.6 a window from 104 to 142 windows and +$1.46 at 221, so the
-zone filter may be giving up too much. It only looks at BRTI against
+live than on the tapes (+$1.80 vs about $0), and their expected value held at
++$1.5-1.6 a window from 104 to 242 windows, until the third split (24 Nov,
+13:15 ET) cost them $381 at once and took their total from +$335 to -$36. It only looks at BRTI against
 Kalshi's strike; a split needs the other feed on the other side of its
 own strike. The recorder now also logs Polymarket's live Chainlink price
 (its real-time data socket) and the window's Chainlink strike, so the split
 risk can be measured from both feeds instead of guessed from one.
+
+The third split was the first with both feeds logged, and it shows how a
+split works. Polymarket's strike was $6.95 above Kalshi's (the opening
+averages of two different feeds), and at every read the Chainlink distance
+to its strike was $5-9 below the BRTI distance to Kalshi's. A close between
+the two strikes, which happened (BRTI $0.29 above Kalshi's strike, Chainlink
+$6.54 below Polymarket's), could only pay Polymarket Up + Kalshi NO $0 and
+the other pair $2: the "edge" on Up + NO all window was the market pricing
+that. In all three live splits Polymarket's strike was $4-7 above Kalshi's.
+Across 1,343 tape windows the strike difference alone predicts splits only
+weakly (1.5-2.3% of windows with |difference| over $6, 0.5-0.6% below),
+because the Chainlink-BRTI basis at the close moves too.
+
+`two_feed_paper` values each pair with both feeds: the gap at the close is
+fitted on the basis now and the strike difference (the strike difference
+carries over 0.74-1.04 to one, the basis about half), BRTI's final move comes
+from the empirical table, and a pair is taken only if expected pay minus
+cost clears the threshold (and is still >= 0 at the late fill). Out of
+sample (the gap model refitted every 20 windows on earlier windows only; 146
+windows, one split):
+
+| 1 read later, limit | Entries | P&L | Normal windows | The split |
+|---|---|---|---|---|
+| edge >= 0.5c | 467 | -$122 | +$1.79 | -$381 |
+| edge >= 0.5c & two-feed value >= 0.5c | 274 | +$180 | +$1.53 | -$42 |
+| edge >= 1c | 291 | -$147 | +$1.62 | -$381 |
+| edge >= 1c & two-feed value >= 1c | 172 | +$189 | +$1.34 | -$5 |
+
+It gives up 15-17% of the normal-window profit to remove most of the split
+loss. That rests on one split; the recorder keeps logging both feeds to test
+it on the next ones.
 
 Polymarket's strike (priceToBeat) and final price are not the Chainlink print
 at the open and close. They match its 60-second average before them (to

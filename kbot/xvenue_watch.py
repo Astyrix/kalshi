@@ -290,6 +290,57 @@ def two_feed(rows, res):
     return fit
 
 
+GAP_BUCKETS = ((0, 60), (60, 180), (180, 420), (420, 10 ** 6))
+
+
+def _both(r):
+    return "cl60" in r and "ptb" in r and "brti" in r and "sig" in r
+
+
+def gap_fit(rows, fin, tks):
+    """Per time-left bucket, least squares of the settlement gap
+    gap_T = (Polymarket final - its strike) - (Kalshi final - its strike) on the
+    Chainlink-BRTI basis now and our strike difference (Polymarket's - Kalshi's).
+    The strike difference is fixed once both opening averages are in, so it carries
+    over nearly one for one; the basis only about half (it partly reverts by the close)."""
+    tks = set(tks)
+    X = {b: [] for b in GAP_BUCKETS}
+    for r in rows:
+        if r["ticker"] in tks and _both(r):
+            f = fin[r["ticker"]]
+            b = next(b for b in GAP_BUCKETS if b[0] <= r["left"] < b[1])
+            X[b].append((r["cl60"] - r["brti"], r["ptb"] - r["strike"], (f[3] - f[2]) - (f[1] - f[0])))
+    out = {}
+    for b, v in X.items():
+        if len(v) < 100:
+            return None
+        v = np.array(v)
+        A = np.c_[np.ones(len(v)), v[:, 0], v[:, 1]]
+        c = np.linalg.lstsq(A, v[:, 2], rcond=None)[0]
+        out[b] = (c, float(np.std(v[:, 2] - A @ c)))
+    return out
+
+
+def pair_value(r, name, F, rng, n=4000):
+    """Expected pay - cost of a pair with both feeds: BRTI's final distance to Kalshi's
+    strike from the empirical move table, Chainlink's = that + the predicted gap + noise.
+    Polymarket Up + Kalshi NO pays (Chainlink final >= its strike) + (BRTI final < Kalshi's).
+    A split only goes one way for a given gap, so one pair of the two carries all the risk."""
+    b = next(b for b in GAP_BUCKETS if b[0] <= r["left"] < b[1])
+    c, sd = F[b]
+    g = c[0] + c[1] * (r["cl60"] - r["brti"]) + c[2] * (r["ptb"] - r["strike"])
+    m = final_moves(r["sig"], r["left"])
+    if len(m) > n:
+        m = m[rng.integers(0, len(m), n)]
+    dk = r["brti"] - r["strike"] + m
+    dp = dk + g + rng.normal(0, sd, len(m))
+    if name == "upP_noK":
+        pay = (dp >= 0).astype(float) + (dk < 0)
+    else:
+        pay = (dp < 0).astype(float) + (dk >= 0)
+    return float(pay.mean()) - (1 - r[name]["net"])
+
+
 def attach_brti(rows):
     """Give rows recorded before BRTI was logged live their BRTI / strike / volatility from the
     cached per-second index (the same numbers MaxyCharts shows live at that moment)."""
@@ -311,14 +362,17 @@ def attach_brti(rows):
     return rows
 
 
-def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=5.0, zone=None, late=0):
+def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=5.0, zone=None, late=0,
+          value=None):
     """Buy min(size, max_pairs) pairs whenever the net edge after fees clears thr
     (optionally only if it was also there on the previous read), at most one entry
     per `gap` seconds and per_window pairs per window. Settled on both venues.
     zone: skip reads where P(BRTI ends within $15 of the strike) >= zone (split risk).
     late: fill at the prices and size of the read `late` reads after the signal (the
     order arrives after the book has moved), only if that read still has edge >= 0
-    (a limit order at the signalled prices would not fill at a loss)."""
+    (a limit order at the signalled prices would not fill at a loss).
+    value: f(row, pair) -> two-feed expected pay - cost; if given, the signal also needs
+    value >= thr and a late fill value >= 0 (reads without both feeds are skipped)."""
     out, used, last, prev = [], {}, {}, {}
     nxt = {}
     if late:
@@ -343,12 +397,16 @@ def paper(rows, res, thr=0.01, max_pairs=50, per_window=500, persist=False, gap=
             prev[name] = x["net"]
             if not ok or r["ts"] - last.get(r["ticker"], 0) < gap:
                 continue
+            if value is not None and (not _both(r) or value(r, name) < thr):
+                continue
             if late:
                 j = nxt.get(i)
                 if j is None or rows[j]["ts"] - r["ts"] > 3 * late + 2:
                     continue
                 x = rows[j][name]
                 if x["net"] < 0 or not (0 < rows[j]["k_yes_ask"] < 1 and 0 < rows[j]["k_no_ask"] < 1):
+                    continue
+                if value is not None and (not _both(rows[j]) or value(rows[j], name) < 0):
                     continue
             q = min(x["size"], max_pairs, per_window - used.get(r["ticker"], 0))
             if q < 1:
@@ -410,6 +468,46 @@ def report():
             ev = (1 - SPLIT_RATE) * gn + SPLIT_RATE * gs if splits else gn
             print(f"  edge >= {thr * 100:.1f}c{tag:52}: {len(t):4d} entries, {pairs:6.0f} pairs, "
                   f"P&L ${pnl:+8.2f} | ${gn:+6.2f} | ${gs:+8.2f} | EV ${ev:+.2f}/window")
+
+    two_feed_paper(rows, res, splits)
+
+
+def two_feed_paper(rows, res, splits):
+    """Out of sample: windows in order of close, the gap model refitted every 20 windows
+    on all windows that closed before; the 1-read-late rule with and without the
+    two-feed value check, on the same windows."""
+    live = {}
+    for r in rows:
+        if _both(r) and r["ticker"] in res:
+            live.setdefault(r["ticker"], int(round((r["ts"] + r["left"]) / 900)) * 900)
+    fin = finals(live)
+    tks = [tk for _, tk in sorted((c, tk) for tk, c in live.items() if tk in fin)]
+    fits = {}
+    for i in range(40, len(tks), 20):
+        F = gap_fit(rows, fin, tks[:i])
+        if F:
+            fits.update({tk: F for tk in tks[i:i + 20]})
+    if not fits:
+        return
+    rng = np.random.default_rng(0)
+    test = {tk: res[tk] for tk in fits}
+    sp = [tk for tk in fits if tk in splits]
+    nn = max(len(fits) - len(sp), 1)
+    print(f"\n  two-feed value check, out of sample ({len(fits)} windows after the first 40, gap model refit "
+          f"every 20 on earlier windows; splits among them: {len(sp)}):")
+    for thr in (0.005, 0.01):
+        for tag, val in (("", None),
+                         (" & two-feed value >= edge", lambda r, n: pair_value(r, n, fits[r["ticker"]], rng))):
+            t = paper(rows, test, thr=thr, late=1, value=val)
+            if not t:
+                continue
+            gn = sum(x[2] for x in t if x[0] not in splits) / nn
+            gs = sum(x[2] for x in t if x[0] in splits) / max(len(sp), 1)
+            ev = (1 - SPLIT_RATE) * gn + SPLIT_RATE * gs if sp else gn
+            print(f"  edge >= {thr * 100:.1f}c, filled 1 read later (limit){tag:26}: {len(t):4d} entries, "
+                  f"{sum(x[1] for x in t):6.0f} pairs, P&L ${sum(x[2] for x in t):+8.2f} | ${gn:+6.2f} | "
+                  f"${gs:+8.2f} | EV ${ev:+.2f}/window")
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
