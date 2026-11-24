@@ -24,7 +24,7 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
 
 ## In-sample results (reports/research/)
 
-- 7 families, 112 parameter combinations, each under three cost scenarios (trial_log.jsonl).
+- 7 families plus 2 limit-entry variants, 132 parameter combinations, each under three cost scenarios (trial_log.jsonl).
 - Before costs a few combinations are slightly positive (gap fill about +$8 a trade on both
   vendors, VWAP reversion, liquidity sweep); after normal costs (~$20-25 a trade at 1x leverage) every one loses.
 - ORB loses even before costs (-$6k to -$19k over the decade on $100k).
@@ -32,6 +32,10 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
   9:30-9:45 (+0.084), slightly mean-reverting after; 10:45-11:00 drifts -0.85 bp a day
   (t -3.2). Both are below SPY's round-trip cost. The open-drive family built on the first
   finding was declared before testing and also failed walk-forward.
+- Cheaper execution (limit entries at the signal close, filled only on a one-tick trade-through,
+  no spread or slippage) for gap fill and VWAP reversion: gap fill gets worse (adverse
+  selection: the limits fill when price runs against the fade), VWAP reversion improves only
+  from -$5.2k to -$4.5k. Both still no trade in walk-forward. (oanda_gap_fill_limit-vwap_reversion_limit_summary.md)
 
 ## Running (restart at each 2-hour limit)
 
@@ -48,7 +52,7 @@ data-quality reports; causal leak-tested features; 7 strategy families; event-dr
 (next-open fills, gap stops, stop-first, trade-through limits, volume cap, three cost
 scenarios, session cache); risk manager and persistent kill switch; metrics with block
 bootstrap; research runner (in-sample guard, trial log, walk-forward, Holm); freeze and
-holdout guard; signal store; live paper engine. 24 tests pass.
+holdout guard; signal store; live paper engine; limit-order entries. 26 tests pass.
 
 ## Not built yet
 

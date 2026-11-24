@@ -1,0 +1,240 @@
+{
+ "gap_fill_limit": {
+  "strategy": "gap_fill_limit",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 0, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.082
+   },
+   "2012": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.271
+   },
+   "2013": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.432
+   },
+   "2014": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.346
+   },
+   "2015": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.088
+   },
+   "2016": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.157
+   },
+   "2017": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.254
+   },
+   "2018": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.325
+   },
+   "2019": {
+    "params": "{\"entry\": \"limit\", \"entry_minute\": 4, \"max_gap\": 0.01, \"min_gap\": 0.002}",
+    "train_sharpe": -1.396
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ },
+ "vwap_reversion_limit": {
+  "strategy": "vwap_reversion_limit",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 1.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -1.184
+   },
+   "2012": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -0.946
+   },
+   "2013": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -1.059
+   },
+   "2014": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -1.084
+   },
+   "2015": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -0.817
+   },
+   "2016": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -0.812
+   },
+   "2017": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -0.651
+   },
+   "2018": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -0.702
+   },
+   "2019": {
+    "params": "{\"entry\": \"limit\", \"rsi_extreme\": 20.0, \"stop_atr\": 2.0, \"stretch_atr\": 3.5}",
+    "train_sharpe": -0.545
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ }
+}

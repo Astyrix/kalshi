@@ -20,12 +20,16 @@ class Signal:
     stop: float                        # stop price (required: no trade without a defined loss)
     target: float | None = None        # limit take-profit price, optional
     max_hold_min: int | None = None    # time stop in minutes after the fill
+    limit: float | None = None         # entry limit price; None = market order at the next open
+    limit_expiry_min: int = 5          # a limit entry not filled within this many minutes is cancelled
     reason: str = ""
     evidence: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.side not in (1, -1):
             raise ValueError("side must be +1 or -1")
+        if self.limit is not None and (self.limit - self.stop) * self.side <= 0:
+            raise ValueError("a limit entry must be on the profitable side of its stop")
 
 
 @dataclass

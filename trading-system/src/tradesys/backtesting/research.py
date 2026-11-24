@@ -37,8 +37,15 @@ GRIDS: dict[str, dict[str, list]] = {
     "momentum": {"start_minute": [15, 30], "min_relvol": [1.0, 1.5], "stop_atr": [1.5, 3.0], "target_r": [1.5, 3.0]},
     # declared 2026-11-24 after the in-sample time-of-day study, before any open_drive backtest
     "open_drive": {"minute": [4, 9], "k": [0.1, 0.2], "max_hold_min": [10, 20]},
+    # declared 2026-11-24 after the in-sample finding that costs, not signals, sink these two
+    # families; limit entries at the signal close, filled only on a one-tick trade-through
+    "gap_fill_limit": {"min_gap": [0.001, 0.002], "max_gap": [0.005, 0.01], "entry_minute": [0, 4, 14],
+                       "entry": ["limit"]},
+    "vwap_reversion_limit": {"stretch_atr": [2.5, 3.5], "rsi_extreme": [20.0, 30.0], "stop_atr": [1.0, 2.0],
+                             "entry": ["limit"]},
 }
-NEEDS_VOLUME = {"vwap_trend", "vwap_reversion", "momentum"}
+BASE = {"gap_fill_limit": "gap_fill", "vwap_reversion_limit": "vwap_reversion"}   # grid name -> strategy class
+NEEDS_VOLUME = {"vwap_trend", "vwap_reversion", "momentum", "vwap_reversion_limit"}
 
 
 def grid(name: str) -> list[dict[str, Any]]:
@@ -75,7 +82,8 @@ class Study:
         for params in params_list or grid(name):
             for sc in scenarios:
                 t0 = time.time()
-                res = Backtester(self.cfg, make(name, **params), sc).run(None, self.ctx, self.days, prepared=self.prep)
+                res = Backtester(self.cfg, make(BASE.get(name, name), **params), sc).run(
+                    None, self.ctx, self.days, prepared=self.prep)
                 k = (name, _key(params), sc)
                 self.daily[k], self.trades[k] = res.daily, res.trades
                 s = summary(res.daily, res.trades, res.starting_equity)

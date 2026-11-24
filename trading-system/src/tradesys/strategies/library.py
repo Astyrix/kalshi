@@ -114,7 +114,7 @@ class VWAPReversion(_Base):
     @classmethod
     def defaults(cls):
         return {"start_minute": 10, "stretch_atr": 3.0, "rsi_extreme": 25.0, "stop_atr": 1.5, "max_entries": 2,
-                "max_hold_min": 30}
+                "max_hold_min": 30, "entry": "market", "limit_expiry": 5}
 
     def on_bar_close(self, row, position):
         p = self.params
@@ -131,7 +131,9 @@ class VWAPReversion(_Base):
             return None
         stop = c - side * p["stop_atr"] * a
         self.entries += 1
-        return Signal(side, stop, vw, p["max_hold_min"], reason="stretched from VWAP, RSI extreme",
+        lim = c if p["entry"] == "limit" else None
+        return Signal(side, stop, vw, p["max_hold_min"], limit=lim, limit_expiry_min=p["limit_expiry"],
+                      reason="stretched from VWAP, RSI extreme",
                       evidence={"vwap": vw, "atr": a, "rsi": r, "stretch_atr": (c - vw) / a})
 
 
@@ -143,7 +145,8 @@ class GapFill(_Base):
 
     @classmethod
     def defaults(cls):
-        return {"min_gap": 0.0015, "max_gap": 0.01, "entry_minute": 4, "buffer_atr": 0.5, "max_hold_min": 60}
+        return {"min_gap": 0.0015, "max_gap": 0.01, "entry_minute": 4, "buffer_atr": 0.5, "max_hold_min": 60,
+                "entry": "market", "limit_expiry": 5}
 
     def on_bar_close(self, row, position):
         p = self.params
@@ -157,8 +160,9 @@ class GapFill(_Base):
             return None                                           # already filled
         stop = row["sess_high"] + p["buffer_atr"] * a if side < 0 else row["sess_low"] - p["buffer_atr"] * a
         self.entries += 1
-        return Signal(side, stop, pc, p["max_hold_min"], reason=f"fade a {g:+.2%} gap to the prior close",
-                      evidence={"gap": g, "prev_close": pc})
+        lim = c if p["entry"] == "limit" else None                # join at the signal bar's close
+        return Signal(side, stop, pc, p["max_hold_min"], limit=lim, limit_expiry_min=p["limit_expiry"],
+                      reason=f"fade a {g:+.2%} gap to the prior close", evidence={"gap": g, "prev_close": pc})
 
 
 class MomentumBreakout(_Base):

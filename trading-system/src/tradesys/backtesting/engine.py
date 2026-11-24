@@ -181,12 +181,21 @@ class Backtester:
                     pos, exit_next = None, False
             if pending is not None and i >= pending[3]:
                 s, st, est, _ = pending
-                pending = None
-                status = self._try_enter(s, t, o[i], v[i], est, w, st)
+                status: Position | str | None
+                if s.limit is None:                       # market: one shot at this bar's open
+                    pending = None
+                    status = self._try_enter(s, t, o[i], v[i], est, w, st)
+                elif t > st + pd.Timedelta(minutes=s.limit_expiry_min) or t > w.entry_cutoff:
+                    pending, status = None, "cancelled: limit not filled"
+                elif (s.side > 0 and l[i] <= s.limit - self.tick) or (s.side < 0 and h[i] >= s.limit + self.tick):
+                    pending = None                        # traded through by a tick: filled at the limit
+                    status = self._try_enter(s, t, s.limit, v[i], est, w, st, limit=True)
+                else:
+                    status = None                         # still working
                 if isinstance(status, Position):
                     pos = status
                     self._sig(st, s, est, "filled")
-                else:
+                elif status is not None:
                     self._sig(st, s, est, status)
             # 2) during the bar
             if pos is not None:
@@ -229,7 +238,9 @@ class Backtester:
         self.eq[day] = self.risk.s.equity
 
     def _try_enter(self, s: Signal, t: pd.Timestamp, bar_open: float, bar_vol: float, est: float, w,
-                   sig_time: pd.Timestamp) -> Position | str:
+                   sig_time: pd.Timestamp, limit: bool = False) -> Position | str:
+        """bar_open is the reference price: the bar's open for a market order, the limit price for a
+        limit order that traded through (filled at its price: no spread or slippage)."""
         if t < w.first_entry or t > w.entry_cutoff:
             return "cancelled: outside the entry window"
         if s.side < 0 and not self.cfg.risk.allow_short:
@@ -241,7 +252,7 @@ class Backtester:
             return "cancelled: opened beyond the stop"
         if s.target is not None and ((s.side > 0 and bar_open >= s.target) or (s.side < 0 and bar_open <= s.target)):
             return "cancelled: opened beyond the target"
-        fill = self.cost.market_fill(s.side, bar_open)
+        fill = bar_open if limit else self.cost.market_fill(s.side, bar_open)
         shares = self.risk.size(est, s.stop, self.cost.round_trip_per_share(est))
         cap = math.floor(self.cost.participation_cap * bar_vol) if self.cost.participation_cap > 0 else shares
         if shares < 1:
@@ -252,7 +263,7 @@ class Backtester:
                 return "rejected: no volume in the fill bar"
             shares, part = cap, " (partial: volume cap)"
         self.risk.on_entry()
-        ev = dict(s.evidence, _entry_raw=bar_open)
+        ev = dict(s.evidence, _entry_raw=bar_open, entry_order="limit" if limit else "market")
         if part:
             ev["partial_fill"] = True
         return Position(side=s.side, shares=shares, entry=fill, entry_time=t, stop=s.stop, target=s.target,

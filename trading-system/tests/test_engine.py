@@ -124,3 +124,20 @@ def test_daily_loss_limit_halts_entries(cfg):
     rm.on_entry(); rm.on_exit(-1001.0)
     ok, why = rm.can_enter()
     assert not ok and "daily loss" in why
+
+
+def test_limit_entry_needs_a_trade_through_and_expires(cfg):
+    f = bars()
+    f["low"] = 500.0                                             # every bar only touches the limit: no fill
+    r = run(cfg, f, OneShot(15, Signal(1, 499.0, None, limit=500.0, limit_expiry_min=3)))
+    assert r.trades.empty and r.signals.iloc[0].status == "cancelled: limit not filled"
+    f.loc[f.index[18], "low"] = 499.99                           # one tick through, within 3 minutes
+    r = run(cfg, f, OneShot(15, Signal(1, 499.0, None, limit=500.0, limit_expiry_min=3)))
+    t = r.trades.iloc[0]
+    assert t.entry == 500.0 and t.entry_raw == 500.0 and t.entry_time == f.index[18]
+    assert t.evidence["entry_order"] == "limit"
+
+
+def test_limit_must_sit_above_a_long_stop():
+    with pytest.raises(ValueError):
+        Signal(1, 500.0, None, limit=499.0)
