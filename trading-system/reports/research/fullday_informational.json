@@ -1,0 +1,197 @@
+[
+ {
+  "strategy": "noise_momentum",
+  "params": {
+   "mult": 1.0,
+   "every": 30
+  },
+  "scenario": "normal",
+  "trades": 1984,
+  "net": -6307,
+  "sharpe": -0.43,
+  "frictionless": 6459,
+  "years_positive": "2/11"
+ },
+ {
+  "strategy": "noise_momentum",
+  "params": {
+   "mult": 1.0,
+   "every": 30
+  },
+  "scenario": "unfavorable",
+  "trades": 1983,
+  "net": -14316,
+  "sharpe": -1.05,
+  "frictionless": 6021,
+  "years_positive": "2/11"
+ },
+ {
+  "strategy": "noise_momentum",
+  "params": {
+   "mult": 1.0,
+   "every": 30
+  },
+  "scenario": "extreme",
+  "trades": 1981,
+  "net": -32729,
+  "sharpe": -2.81,
+  "frictionless": 5152,
+  "years_positive": "1/11"
+ },
+ {
+  "strategy": "noise_momentum",
+  "params": {
+   "mult": 1.5,
+   "every": 30
+  },
+  "scenario": "normal",
+  "trades": 1229,
+  "net": 1281,
+  "sharpe": 0.15,
+  "frictionless": 7798,
+  "years_positive": "6/11"
+ },
+ {
+  "strategy": "noise_momentum",
+  "params": {
+   "mult": 1.5,
+   "every": 30
+  },
+  "scenario": "unfavorable",
+  "trades": 1229,
+  "net": -3141,
+  "sharpe": -0.37,
+  "frictionless": 7487,
+  "years_positive": "4/11"
+ },
+ {
+  "strategy": "noise_momentum",
+  "params": {
+   "mult": 1.5,
+   "every": 30
+  },
+  "scenario": "extreme",
+  "trades": 1227,
+  "net": -14552,
+  "sharpe": -1.87,
+  "frictionless": 6726,
+  "years_positive": "0/11"
+ },
+ {
+  "strategy": "first_candle",
+  "params": {
+   "candle_min": 5,
+   "target_r": 10.0
+  },
+  "scenario": "normal",
+  "trades": 2416,
+  "net": -23671,
+  "sharpe": -0.51,
+  "frictionless": 21089,
+  "years_positive": "2/11"
+ },
+ {
+  "strategy": "first_candle",
+  "params": {
+   "candle_min": 5,
+   "target_r": 10.0
+  },
+  "scenario": "unfavorable",
+  "trades": 2416,
+  "net": -47990,
+  "sharpe": -1.29,
+  "frictionless": 15325,
+  "years_positive": "2/11"
+ },
+ {
+  "strategy": "first_candle",
+  "params": {
+   "candle_min": 5,
+   "target_r": 10.0
+  },
+  "scenario": "extreme",
+  "trades": 2416,
+  "net": -81333,
+  "sharpe": -3.57,
+  "frictionless": 6923,
+  "years_positive": "0/11"
+ },
+ {
+  "strategy": "first_candle",
+  "params": {
+   "candle_min": 5,
+   "target_r": null
+  },
+  "scenario": "normal",
+  "trades": 2416,
+  "net": -24004,
+  "sharpe": -0.51,
+  "frictionless": 21800,
+  "years_positive": "2/11"
+ },
+ {
+  "strategy": "first_candle",
+  "params": {
+   "candle_min": 5,
+   "target_r": null
+  },
+  "scenario": "unfavorable",
+  "trades": 2416,
+  "net": -48559,
+  "sharpe": -1.29,
+  "frictionless": 16174,
+  "years_positive": "2/11"
+ },
+ {
+  "strategy": "first_candle",
+  "params": {
+   "candle_min": 5,
+   "target_r": null
+  },
+  "scenario": "extreme",
+  "trades": 2416,
+  "net": -81846,
+  "sharpe": -3.6,
+  "frictionless": 7968,
+  "years_positive": "0/11"
+ },
+ {
+  "strategy": "gap_go",
+  "params": {
+   "min_gap": 0.005,
+   "candle_min": 5
+  },
+  "scenario": "normal",
+  "trades": 318,
+  "net": 6787,
+  "sharpe": 0.31,
+  "frictionless": 14773,
+  "years_positive": "8/11"
+ },
+ {
+  "strategy": "gap_go",
+  "params": {
+   "min_gap": 0.005,
+   "candle_min": 5
+  },
+  "scenario": "unfavorable",
+  "trades": 318,
+  "net": 901,
+  "sharpe": 0.05,
+  "frictionless": 14045,
+  "years_positive": "7/11"
+ },
+ {
+  "strategy": "gap_go",
+  "params": {
+   "min_gap": 0.005,
+   "candle_min": 5
+  },
+  "scenario": "extreme",
+  "trades": 318,
+  "net": -12565,
+  "sharpe": -0.68,
+  "frictionless": 11909,
+  "years_positive": "2/11"
+ }
+]

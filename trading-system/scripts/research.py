@@ -49,7 +49,9 @@ rep = check(bars, d0, d1)
 print(f"{src}: {len(bars)} bars, {d0} .. {d1}; quality {rep.summary()}", flush=True)
 vix = pd.read_parquet(yd / "VIX_1d.parquet")["close"]
 vix.index = [d.date() for d in vix.index]
-st = Study(cfg, bars, src, dividends=div, vix=vix)
+fomc = {dt.date.fromisoformat(x) for x in json.loads((ROOT / "data" / "raw" / "fed" / "fomc_dates.json").read_text())}
+from tradesys.market_calendar import previous_session  # noqa: E402
+st = Study(cfg, bars, src, dividends=div, vix=vix, events={"fomc": fomc, "fomc_eve": {previous_session(d) for d in fomc}})
 wf, pv = {}, {}
 lines = [f"# In-sample study: {src} ({st.days[0]} .. {st.days[-1]}, {len(st.days)} sessions)", "",
          "Every grid point under three cost scenarios; walk-forward selection on the unfavorable scenario.",

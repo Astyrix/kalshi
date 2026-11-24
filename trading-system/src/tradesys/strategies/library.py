@@ -513,10 +513,33 @@ class Filtered(_Base):
         return out
 
 
+
+class EventLong(_Base):
+    """Scheduled-event drift: long from 9:31 to the flatten time on days flagged `event` in the
+    daily context (e.g. 'fomc' = FOMC announcement day: the pre-announcement drift of Lucca &
+    Moench 2015; 'fomc_eve' = the session before); stop 1 daily ATR below."""
+    name = "event_long"
+
+    @classmethod
+    def defaults(cls):
+        return {"event": "fomc"}
+
+    def on_bar_close(self, row, position):
+        if position is not None or self.entries or row["minute"] != 0:
+            return None
+        flag, a = self.ctx.get(self.params["event"]), self.ctx.get("atr_d14")
+        if flag is not True and flag != True or not _ok(a):  # noqa: E712
+            return None
+        self.entries += 1
+        return Signal(1, row["close"] - a, None, None, reason=f"event day: {self.params['event']}")
+
+
 REGISTRY = {c.name: c for c in (OpeningRangeBreakout, VWAPTrend, VWAPReversion, GapFill, MomentumBreakout,
                                 LiquiditySweep, OpenDrive, FirstCandle, NoiseMomentum, NarrowRangeORB,
-                                VolatilityBreakout, Oops, TurtleSoup, CalendarLong, GapGo, Filtered)}
+                                VolatilityBreakout, Oops, TurtleSoup, CalendarLong, GapGo, Filtered, EventLong)}
 
 
 def make(name: str, **params: Any):
+    if name not in REGISTRY and name == "ml_direction":
+        from . import ml  # noqa: F401  (registers itself)
     return REGISTRY[name](**params)

@@ -1,0 +1,121 @@
+{
+ "ml_direction": {
+  "strategy": "ml_direction",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": null,
+    "train_sharpe": null
+   },
+   "2012": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"lgbm\"}",
+    "train_sharpe": -0.77
+   },
+   "2013": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"lgbm\"}",
+    "train_sharpe": -1.435
+   },
+   "2014": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"logit\"}",
+    "train_sharpe": -1.364
+   },
+   "2015": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"logit\"}",
+    "train_sharpe": -1.45
+   },
+   "2016": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"logit\"}",
+    "train_sharpe": -1.5
+   },
+   "2017": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"lgbm\"}",
+    "train_sharpe": -1.506
+   },
+   "2018": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 29, \"model\": \"logit\"}",
+    "train_sharpe": -1.499
+   },
+   "2019": {
+    "params": "{\"key\": \"oanda\", \"margin\": 0.05, \"minute\": 4, \"model\": \"logit\"}",
+    "train_sharpe": -1.394
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ }
+}

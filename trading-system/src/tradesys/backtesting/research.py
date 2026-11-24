@@ -59,6 +59,10 @@ GRIDS: dict[str, dict[str, list]] = {
                      ("gap_go", {"min_gap": 0.003, "candle_min": 5}), ("oops", {"min_gap": 0.0, "target_r": None}),
                      ("nr_orb", {"nr": 4, "minutes": 5, "stop": "far", "target_r": None}))},
 }
+# declared 2026-11-24: walk-forward direction models (strategies/ml.py), trained per year on earlier years
+GRIDS["ml_direction"] = {"minute": [4, 29], "model": ["logit", "lgbm"], "margin": [0.02, 0.05]}
+# declared 2026-11-24: pre-FOMC announcement drift (Lucca & Moench 2015), FOMC dates from federalreserve.gov
+GRIDS["event_long"] = {"event": ["fomc", "fomc_eve"]}
 BASE = {"gap_fill_limit": "gap_fill", "vwap_reversion_limit": "vwap_reversion",
         **{f"filt_{b}": "filtered" for b in ("first_candle", "vol_breakout", "gap_go", "oops", "nr_orb")}}
 NEEDS_VOLUME = {"vwap_trend", "vwap_reversion", "momentum", "vwap_reversion_limit"}   # noise_momentum uses VWAP only as a trailing exit
@@ -75,13 +79,16 @@ def _key(params: dict) -> str:
 
 class Study:
     def __init__(self, cfg: Config, bars: pd.DataFrame, source: str, dividends: pd.Series | None = None,
-                 out_dir: Path | None = None, vix: pd.Series | None = None):
+                 out_dir: Path | None = None, vix: pd.Series | None = None,
+                 events: dict[str, set] | None = None):
         oos0 = cfg.validation.out_of_sample[0]
         cut = pd.Timestamp(dt.datetime.combine(oos0, dt.time(0)), tz="America/New_York")
         if (bars.index >= cut).any():
             bars = bars[bars.index < cut]               # the holdout never enters in-sample research
         self.cfg, self.source = cfg, source
         self.feats, self.ctx = intraday(bars), daily_context(bars, dividends, vix)
+        for k, ds in (events or {}).items():            # scheduled events are known in advance
+            self.ctx[k] = [d in ds for d in self.ctx.index]
         self.days = sorted(set(self.feats["day"]))
         self.prep = prepare_sessions(cfg, self.feats)                 # sliced once, reused by every run
         self.has_volume = bool((bars["volume"] > 0).mean() > 0.5)
@@ -95,6 +102,14 @@ class Study:
         if name in NEEDS_VOLUME and not self.has_volume:
             return pd.DataFrame()
         rows = []
+        if name == "ml_direction":
+            from ..strategies import ml
+            for minute in sorted({p["minute"] for p in (params_list or grid(name))}):
+                X = ml.design(self.feats, self.ctx, minute)
+                for kind in sorted({p["model"] for p in (params_list or grid(name))}):
+                    ml.PREDICTIONS[(self.source, minute, kind)] = ml.walkforward_predictions(
+                        X, kind, first_test_year=self.days[0].year + 2)
+            params_list = [dict(p, key=self.source) for p in (params_list or grid(name))]
         for params in params_list or grid(name):
             for sc in scenarios:
                 t0 = time.time()

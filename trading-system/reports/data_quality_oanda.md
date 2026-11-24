@@ -1,6 +1,6 @@
 # Data quality: oanda (SPY-equivalent proxy)
 
-Period 2009-11-02 to 2020-05-14. Generated 2026-11-24 22:51 UTC.
+Period 2009-11-02 to 2020-05-14. Generated 2026-11-24 23:04 UTC.
 
 | check | value |
 |---|---|

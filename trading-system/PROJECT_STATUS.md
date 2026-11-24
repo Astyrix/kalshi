@@ -37,6 +37,20 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
   selection: the limits fill when price runs against the fade), VWAP reversion improves only
   from -$5.2k to -$4.5k. Both still no trade in walk-forward. (oanda_gap_fill_limit-vwap_reversion_limit_summary.md)
 
+- Published / famous-trader rules (adapted to 9:30-11:00): Zarattini-Aziz first-candle ORB,
+  Zarattini-Aziz-Barbon noise-area momentum, Crabel NR4/NR7 ORB, Williams volatility breakout
+  and Oops, Raschke Turtle Soup, calendar effects (turn of month, pre-holiday, Monday, Friday),
+  gap-and-go, VIX-regime and daily-trend filters, a walk-forward ML direction model
+  (logit / LightGBM on 20 features), and the pre-FOMC drift (Lucca-Moench; dates from
+  federalreserve.gov). None passes walk-forward; best in-sample Sharpe about 0.36 (gap-and-go,
+  gaps >= 0.5%). The ML model's out-of-sample predictions win 44-48%.
+- Pre-cost edges of the best grid points are 1.5-5.2 cents a share per trade (t 1.4-2.1, before
+  any multiple-testing correction) against a modelled 3.7c round trip; a 1c round trip (spread
+  only, $0 commission) would leave a few marginally positive but statistically weak.
+- Informational only (outside the window, reports/research/fullday_informational.json): holding
+  to the close does not rescue them on 2010-2019 data (noise momentum Sharpe -0.43..+0.15).
+- About 30 families and 215 parameter sets have been tested in total (trial_log.jsonl).
+
 ## Running (restart at each 2-hour limit)
 
 - SPY live paper engine: `python scripts/paper_live.py --minutes 115` (sleeps outside 9:30-11:00;
