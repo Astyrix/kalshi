@@ -52,8 +52,9 @@ def duka_fetch_day(s: requests.Session, root: Path, instrument: str, day: dt.dat
         try:
             r = s.get(url, headers=UA, timeout=30)
         except requests.RequestException as e:
-            wait = min(300, pause * 2 ** (i + 1))
+            wait = min(120, pause * 2 ** (i + 1))
             log.warning("dukascopy %s: %s; retry in %.0fs", day, type(e).__name__, wait)
+            s.close()                                         # a dropped tunnel: start a fresh connection
             time.sleep(wait)
             continue
         if r.status_code == 200:
@@ -66,9 +67,9 @@ def duka_fetch_day(s: requests.Session, root: Path, instrument: str, day: dt.dat
         if r.status_code == 404:
             time.sleep(pause)
             return None
-        wait = min(300, pause * 2 ** (i + 2))                 # 429 / 503: the vendor's throttle
+        wait = min(120, pause * 2 ** (i + 2))                 # 429 / 503: the vendor's throttle
         time.sleep(wait)
-    raise RuntimeError(f"dukascopy {day}: still throttled after {tries} tries")
+    raise RuntimeError(f"dukascopy {day}: still failing after {tries} tries")
 
 
 def duka_parse(path: Path, day: dt.date, point: float = 1000.0) -> pd.DataFrame:
@@ -91,11 +92,23 @@ def duka_download(root: Path, start: dt.date, end: dt.date, instrument: str = "U
                   pause: float = 2.0) -> dict:
     s = requests.Session()
     got = missing = 0
-    for d in sessions(max(start, DUKA_FIRST), end):
-        p = duka_fetch_day(s, root, instrument, d, pause=pause)
-        got += p is not None
-        missing += p is None
-    return {"days": got, "missing": missing}
+    failed: list[dt.date] = []
+    todo = [d for d in sessions(max(start, DUKA_FIRST), end) if not duka_path(root, instrument, d).exists()]
+    for rnd in range(3):                                      # failed days are retried in later rounds
+        failed = []
+        for d in todo:
+            try:
+                p = duka_fetch_day(s, root, instrument, d, pause=pause, tries=5)
+            except RuntimeError as e:
+                log.warning("%s; skipped for now", e)
+                failed.append(d)
+                continue
+            got += p is not None
+            missing += p is None
+        todo = failed
+        if not todo:
+            break
+    return {"days": got, "missing": missing, "failed": [str(d) for d in failed]}
 
 
 def duka_bars(root: Path, start: dt.date, end: dt.date, instrument: str = "USA500IDXUSD") -> pd.DataFrame:
@@ -107,11 +120,51 @@ def duka_bars(root: Path, start: dt.date, end: dt.date, instrument: str = "USA50
     return pd.concat(parts).sort_index() if parts else pd.DataFrame()
 
 
-# ------------------------------------------------------------------ HistData mirror
+# ------------------------------------------------------------------ HistData
+HISTDATA = "https://www.histdata.com"
+
+
+def histdata_download(folder: Path, year: int, month: int | None = None, pair: str = "SPXUSD") -> Path:
+    """One year (or, for the current year, one month) of M1 ASCII bars from histdata.com: the page
+    gives a form token, the zip comes from get.php. Cached: an existing csv is not fetched again."""
+    import io
+    import re
+    import zipfile
+    folder = Path(folder)
+    name = f"DAT_ASCII_{pair}_M1_{year}{'' if month is None else f'{month:02d}'}.csv"
+    out = folder / name
+    if out.exists():
+        return out
+    s = requests.Session()
+    s.headers.update(UA)
+    ref = f"{HISTDATA}/download-free-forex-historical-data/?/ascii/1-minute-bar-quotes/{pair.lower()}/{year}" + (
+        f"/{month}" if month else "")
+    page = s.get(ref, timeout=30)
+    page.raise_for_status()
+    tk = re.search(r'id="tk"\s+value="([^"]+)"', page.text)
+    if not tk:
+        raise RuntimeError(f"histdata: no form token on {ref}")
+    data = {"tk": tk.group(1), "date": str(year), "datemonth": f"{year}{month:02d}" if month else str(year),
+            "platform": "ASCII", "timeframe": "M1", "fxpair": pair}
+    z = s.post(f"{HISTDATA}/get.php", data=data, timeout=180,
+               headers={"Referer": ref, "Content-Type": "application/x-www-form-urlencoded"})
+    if z.status_code != 200 or z.content[:2] != b"PK":
+        raise RuntimeError(f"histdata {year}-{month}: HTTP {z.status_code}, not a zip")
+    zf = zipfile.ZipFile(io.BytesIO(z.content))
+    csv = [n for n in zf.namelist() if n.endswith(".csv")][0]
+    folder.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".tmp")
+    tmp.write_bytes(zf.read(csv))
+    tmp.replace(out)
+    time.sleep(3)
+    return out
+
+
+# ------------------------------------------------------------------ HistData files
 def histdata_bars(folder: Path) -> pd.DataFrame:
     """DAT_ASCII_SPXUSD_M1_YYYY.csv files: 'YYYYMMDD HHMMSS;open;high;low;close;volume', EST without DST."""
     parts = []
-    for f in sorted(Path(folder).glob("DAT_ASCII_SPXUSD_M1_*.csv")):
+    for f in sorted(Path(folder).glob("DAT_ASCII_SPXUSD_M1_*.csv")):     # yearly and monthly files
         df = pd.read_csv(f, sep=";", header=None, names=["t", "open", "high", "low", "close", "volume"])
         ts = pd.to_datetime(df["t"], format="%Y%m%d %H%M%S") + pd.Timedelta(hours=5)     # fixed EST -> UTC
         df.index = pd.DatetimeIndex(ts, name="ts").tz_localize("UTC")

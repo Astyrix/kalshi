@@ -1,69 +1,67 @@
 # PROJECT_STATUS
 
-Last updated: 2026-11-24. Read this first when continuing in a new session.
+Last updated: 2026-11-24 (evening, New York). Read this first when continuing in a new session.
 
-## Where things stand
+## Headline
 
-**No strategy has been tested on real market data yet.** The data source (Databento) is
-blocked: the API key saved in the Claude environment for `hist.databento.com` is rejected
-with HTTP 401 `auth_authentication_failed`. Everything that does not need data is built and
-tested (24 tests, synthetic bars only for mechanics).
+**No edge found yet.** On 2010-2019 S&P 500 minute data (free proxies scaled to SPY dollars),
+none of the seven strategy families makes money after realistic costs. Walk-forward selection
+chose "no trade" in every family and every year. Nothing has been frozen; the 2020-2026
+holdout is untouched. A live PAPER engine runs all families in shadow mode on real SPY bars.
 
-## Done
+## Data (no Databento account; free sources, see docs/DATA_DECISION.md, revision 3)
 
-- Phase 1. `Jakeschincariol/day-trader-skill` (commit 3d0f4ef) cloned, audited
-  (docs/SKILL_AUDIT.md), its 315 tests pass, installed project-locally in `.claude/skills/`.
-  Key findings: 2026-2027-only holiday calendar, entries at the signal bar's close, no costs,
-  i.i.d. bar resampling in the "Time Machine". Reused: approval flow, stop-first rule, risk checklist.
-- Phase 2 (partial). Coverage research in docs/DATA_SOURCES.md: Databento US equities start
-  2018-05-01; OPRA from 2013-04-01 (trades, bars, statistics, definitions, CBBO-1m), CMBP-1
-  from 2023-03-28. So 2010 to April 2018 SPY needs another vendor (candidates listed, none bought).
-- Phases 3-5 (code). `src/tradesys/`:
-  - `config.py` + `config/default.yaml`: typed config, fingerprint for freezing.
-  - `market_calendar.py`: XNYS sessions via exchange_calendars, zoneinfo New York, the
-    9:30 / 9:31 first fill / 10:50 cutoff / 10:55 flatten / 11:00 hard-flat window.
-  - `data_ingestion/`: Databento coverage and cost quotes, guarded month-by-month downloads
-    (two-key spend guard), atomic Parquet store with manifest, validation + markdown report.
-  - `feature_engineering/features.py`: daily context (prior day, pre-market, gap with
-    dividend adjustment hook, daily ATR) and intraday features (VWAP, EMA/SMA, RSI, MACD, ATR,
-    Bollinger, ROC, realized vol, relative volume by minute-of-day, opening ranges), leak-tested.
-  - `strategies/library.py`: ORB, VWAP trend, VWAP reversion, gap fill, momentum breakout,
-    liquidity sweep; exact parameterised rules, every signal has a stop.
-  - `backtesting/engine.py` + `costs.py`: event-driven, next-open fills, gap-through stops,
-    stop-first same-bar rule, trade-through limits, volume cap/partial fills, short-sale fees,
-    entry window and mandatory flatten, emergency close, three cost scenarios.
-  - `risk_management/risk.py`: sizing by stop distance, daily/weekly loss, streak, trade
-    count, max positions, persistent kill switch with named manual reset (fails safe).
-  - `analytics/metrics.py`: daily-return Sharpe/Sortino/Calmar, drawdowns, PF, expectancy,
-    streaks, costs, stationary block bootstrap CIs and p-values.
-  - `signal_engine/store.py`: SQLite record of every signal; refuses probabilities without a calibration source.
-  - `backtesting/freeze.py` + `main.py backtest`: OOS dates refused without a frozen spec; OOS runs logged; contamination flagged.
+| Role | Source | Span | Status |
+|---|---|---|---|
+| In-sample | Oanda SPX500_USD 1-min (public GitHub mirror) | 2010-01..2019-12 | loaded, quality report in study output |
+| Replication | HistData SPXUSD 1-min | 2010-11..2018-12 | loaded, reports/data_quality_histdata.md |
+| Holdout | HistData SPXUSD 1-min (histdata.com) | 2020-01..2026-11-13 | downloaded, NOT looked at |
+| Second holdout | Dukascopy USA500.IDX | 2020+ | downloading, throttled (429) |
+| Real SPY | Yahoo 1-min (last ~30 days), daily since 1993 | | loaded |
 
-## Blockers (need the user)
+Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY 0.988, same
+15-minute range-break direction on 22 of 22 days.
 
-1. **Databento key**: re-enter it in the environment settings (Network secrets, host
-   `hist.databento.com`, username = the `db-...` key, password blank), or confirm the
-   account is active. Then run `python main.py data-coverage` and `data-quote`.
-2. **Spend approval**: after quotes, approve a dollar amount for SPY 1-minute bars 2018-2026
-   (expected small; within the $125 new-account credit is likely but unverified).
-3. **2010-2018 equities source**: choose a vendor (FirstRate one-time, or Massive $79-199/month), or accept 2018-2026 only
-   (then in-sample becomes 2018-05..2021-12 and OOS 2022+, which must be decided BEFORE any result is seen).
+## In-sample results (reports/research/)
 
-## Next steps (in order)
+- 7 families, 112 parameter combinations, each under three cost scenarios (trial_log.jsonl).
+- Before costs a few combinations are slightly positive (gap fill about +$8 a trade on both
+  vendors, VWAP reversion, liquidity sweep); after normal costs (~$20-25 a trade at 1x leverage) every one loses.
+- ORB loses even before costs (-$6k to -$19k over the decade on $100k).
+- Time of day (time_of_day.md): 5-minute returns are positively autocorrelated only in
+  9:30-9:45 (+0.084), slightly mean-reverting after; 10:45-11:00 drifts -0.85 bp a day
+  (t -3.2). Both are below SPY's round-trip cost. The open-drive family built on the first
+  finding was declared before testing and also failed walk-forward.
 
-1. With a working key: `python main.py data-coverage` -> update docs/DATA_SOURCES.md with verified ranges.
-2. `python main.py data-quote --start 2018-05-01 --end 2026-11-01` (and for OPRA SPY options) -> ask for approval.
-3. Fetch, then `python main.py data-report ...` -> commit reports/data_quality_*.md.
-4. Phase 6 research per docs/IMPLEMENTATION_PLAN.md (walk-forward runner and trial log still to write).
+## Running (restart at each 2-hour limit)
 
-## Commands
+- SPY live paper engine: `python scripts/paper_live.py --minutes 115` (sleeps outside 9:30-11:00;
+  records only sessions it watched live; reports/paper/, state/signals.db).
+- Dukascopy holdout download: `python scripts/fetch_dukascopy.py 2020-01-01 2026-10-25` (resumable).
+- The Kalshi bots (separate project in the repo root).
 
-```
-cd trading-system
-pip install -r requirements.txt
-python -m pytest -q
-python main.py --help
-```
+## Built (src/tradesys/)
 
-Repository: Astyrix/kalshi, branch `claude/wonderful-keller-cybg5g`, folder `trading-system/`.
-The Kalshi paper bots in the same repository are a separate project (see the root README).
+Calendar and 9:30-11:00 window; Databento client with two-key spend guard (unused: no account);
+free sources (Oanda, HistData, Dukascopy, Yahoo) and SPY-dollar proxy scaling; validation and
+data-quality reports; causal leak-tested features; 7 strategy families; event-driven backtester
+(next-open fills, gap stops, stop-first, trade-through limits, volume cap, three cost
+scenarios, session cache); risk manager and persistent kill switch; metrics with block
+bootstrap; research runner (in-sample guard, trial log, walk-forward, Holm); freeze and
+holdout guard; signal store; live paper engine. 24 tests pass.
+
+## Not built yet
+
+Options engine (no free historical options data with real bid/ask), regime classifier,
+dashboard, broker paper integration, Monte Carlo report. These wait for either a validated
+strategy or the data they need.
+
+## Next steps
+
+1. Keep collecting forward paper sessions on real SPY (shadow; tells whether live matches backtest).
+2. Research ideas not yet tested, each pre-declared in `research.GRIDS` before running:
+   longer holds (to 11:00) with wider stops, filters by VIX / gap size / day of week,
+   cost-reducing execution (limit entries).
+3. If a family ever passes in-sample (walk-forward positive under unfavorable costs, Holm p < 0.05),
+   freeze it (`main.py freeze`) and run the HistData holdout once.
+4. Options research needs data with real quotes (OPRA via a paid vendor): ask the user before any cost.

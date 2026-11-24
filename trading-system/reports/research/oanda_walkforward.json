@@ -1,0 +1,121 @@
+{
+ "open_drive": {
+  "strategy": "open_drive",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"k\": 0.1, \"max_hold_min\": 10, \"minute\": 4}",
+    "train_sharpe": -0.884
+   },
+   "2012": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 20, \"minute\": 9}",
+    "train_sharpe": -0.926
+   },
+   "2013": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 10, \"minute\": 4}",
+    "train_sharpe": -0.922
+   },
+   "2014": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 10, \"minute\": 4}",
+    "train_sharpe": -0.691
+   },
+   "2015": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 20, \"minute\": 4}",
+    "train_sharpe": -0.307
+   },
+   "2016": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 10, \"minute\": 4}",
+    "train_sharpe": -0.362
+   },
+   "2017": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 10, \"minute\": 4}",
+    "train_sharpe": -0.372
+   },
+   "2018": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 10, \"minute\": 4}",
+    "train_sharpe": -0.343
+   },
+   "2019": {
+    "params": "{\"k\": 0.2, \"max_hold_min\": 20, \"minute\": 4}",
+    "train_sharpe": -0.261
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ }
+}

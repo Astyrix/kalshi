@@ -231,8 +231,32 @@ class LiquiditySweep(_Base):
         return None
 
 
+class OpenDrive(_Base):
+    """Opening drive (from the in-sample time-of-day study: 5-minute returns are positively
+    autocorrelated only in 9:30-9:45). At the close of bar `minute`, if price has moved more
+    than k daily ATRs from the session open, follow it; stop at the session open (the drive
+    failed if price returns there); exit after max_hold_min minutes."""
+    name = "open_drive"
+
+    @classmethod
+    def defaults(cls):
+        return {"minute": 4, "k": 0.1, "max_hold_min": 10}
+
+    def on_bar_close(self, row, position):
+        p = self.params
+        if position is not None or self.entries or row["minute"] != p["minute"]:
+            return None
+        o, c, atr = row.get("sess_open"), row["close"], self.ctx.get("atr_d14")
+        if not _ok(o, atr) or atr <= 0 or abs(c - o) < p["k"] * atr:
+            return None
+        side = 1 if c > o else -1
+        self.entries += 1
+        return Signal(side, o, None, p["max_hold_min"], reason=f"opening drive {c - o:+.2f} from the open",
+                      evidence={"move": c - o, "atr_d14": atr})
+
+
 REGISTRY = {c.name: c for c in (OpeningRangeBreakout, VWAPTrend, VWAPReversion, GapFill, MomentumBreakout,
-                                LiquiditySweep)}
+                                LiquiditySweep, OpenDrive)}
 
 
 def make(name: str, **params: Any):

@@ -26,7 +26,7 @@ from ..analytics.metrics import daily_returns, p_value_mean_positive, sharpe_ci,
 from ..config import ROOT, Config
 from ..feature_engineering.features import daily_context, intraday
 from ..strategies.library import make
-from .engine import Backtester
+from .engine import Backtester, prepare_sessions
 
 GRIDS: dict[str, dict[str, list]] = {
     "orb": {"minutes": [5, 15, 30], "stop": ["mid", "far"], "target_r": [1.0, 2.0, None]},
@@ -35,6 +35,8 @@ GRIDS: dict[str, dict[str, list]] = {
     "vwap_trend": {"start_minute": [15, 30], "stop_atr": [1.0, 2.0], "target_r": [1.5, 2.5]},
     "vwap_reversion": {"stretch_atr": [2.5, 3.5], "rsi_extreme": [20.0, 30.0], "stop_atr": [1.0, 2.0]},
     "momentum": {"start_minute": [15, 30], "min_relvol": [1.0, 1.5], "stop_atr": [1.5, 3.0], "target_r": [1.5, 3.0]},
+    # declared 2026-11-24 after the in-sample time-of-day study, before any open_drive backtest
+    "open_drive": {"minute": [4, 9], "k": [0.1, 0.2], "max_hold_min": [10, 20]},
 }
 NEEDS_VOLUME = {"vwap_trend", "vwap_reversion", "momentum"}
 
@@ -58,6 +60,7 @@ class Study:
         self.cfg, self.source = cfg, source
         self.feats, self.ctx = intraday(bars), daily_context(bars, dividends)
         self.days = sorted(set(self.feats["day"]))
+        self.prep = prepare_sessions(cfg, self.feats)                 # sliced once, reused by every run
         self.has_volume = bool((bars["volume"] > 0).mean() > 0.5)
         self.out = out_dir or ROOT / "reports" / "research"
         self.out.mkdir(parents=True, exist_ok=True)
@@ -72,7 +75,7 @@ class Study:
         for params in params_list or grid(name):
             for sc in scenarios:
                 t0 = time.time()
-                res = Backtester(self.cfg, make(name, **params), sc).run(self.feats, self.ctx, self.days)
+                res = Backtester(self.cfg, make(name, **params), sc).run(None, self.ctx, self.days, prepared=self.prep)
                 k = (name, _key(params), sc)
                 self.daily[k], self.trades[k] = res.daily, res.trades
                 s = summary(res.daily, res.trades, res.starting_equity)

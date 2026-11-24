@@ -74,6 +74,34 @@ class Result:
     starting_equity: float
 
 
+@dataclass
+class SessionData:
+    """One session's bars inside the trading window, prepared once and reused across runs."""
+    w: object
+    rows: pd.DataFrame
+    recs: list
+    o: np.ndarray
+    h: np.ndarray
+    l: np.ndarray
+    c: np.ndarray
+    v: np.ndarray
+    atr: np.ndarray
+
+
+def prepare_sessions(cfg: Config, feats: pd.DataFrame, days: list[dt.date] | None = None) -> dict[dt.date, SessionData]:
+    out = {}
+    for d, f in feats.groupby("day"):
+        if days is not None and d not in days:
+            continue
+        w = window(d, cfg.session)
+        rows = f[(f.index >= w.open) & (f.index < w.hard_flat)]
+        n = len(rows)
+        out[d] = SessionData(w, rows, rows.to_dict("records"),
+                             *(rows[k].to_numpy(float) for k in ("open", "high", "low", "close", "volume")),
+                             rows["atr14"].to_numpy(float) if "atr14" in rows else np.full(n, np.nan))
+    return out
+
+
 class Backtester:
     def __init__(self, cfg: Config, strategy: Strategy, scenario: str = "normal",
                  kill_path: str | None = None, tick: float = 0.01, max_gap_min: int = 3):
@@ -114,9 +142,10 @@ class Backtester:
                              **{f"ev_{k}": v for k, v in s.evidence.items()}})
 
     # ------------------------------------------------------------------ session
-    def run_session(self, day: dt.date, f: pd.DataFrame, ctx: pd.Series) -> None:
-        w = window(day, self.cfg.session)
-        rows = f[(f.index >= w.open) & (f.index < w.hard_flat)]
+    def run_session(self, day: dt.date, f: pd.DataFrame | None, ctx: pd.Series, sd: SessionData | None = None) -> None:
+        if sd is None:
+            sd = prepare_sessions(self.cfg, f.assign(day=day) if "day" not in f else f)[day]
+        w, rows = sd.w, sd.rows
         self.risk.start_session(day)
         self.strat.on_session_start(day, ctx)
         pos: Position | None = None
@@ -127,11 +156,9 @@ class Backtester:
             self.daily[day] = 0.0
             self.eq[day] = self.risk.s.equity
             return
-        o, h, l, c = (rows[k].to_numpy(float) for k in ("open", "high", "low", "close"))
-        v = rows["volume"].to_numpy(float)
-        atr = rows["atr14"].to_numpy(float) if "atr14" in rows else np.full(n, np.nan)
+        o, h, l, c, v, atr = sd.o, sd.h, sd.l, sd.c, sd.v, sd.atr
         times = rows.index
-        recs = rows.to_dict("records")              # plain dicts: far faster than rows.iloc[i] per bar
+        recs = sd.recs                              # plain dicts: far faster than rows.iloc[i] per bar
         start_eq = self.risk.s.equity
         for i in range(n):
             t = times[i]
@@ -233,16 +260,16 @@ class Backtester:
                         signal_time=sig_time, risk_per_share=abs(bar_open - s.stop), evidence=ev)
 
     # ------------------------------------------------------------------ run
-    def run(self, feats: pd.DataFrame, ctx: pd.DataFrame, days: list[dt.date] | None = None,
-            skip_days: set[dt.date] | None = None) -> Result:
-        by_day = {d: g for d, g in feats.groupby("day")}
-        days = days if days is not None else sorted(by_day)
+    def run(self, feats: pd.DataFrame | None, ctx: pd.DataFrame, days: list[dt.date] | None = None,
+            skip_days: set[dt.date] | None = None, prepared: dict[dt.date, SessionData] | None = None) -> Result:
+        prep = prepared if prepared is not None else prepare_sessions(self.cfg, feats)
+        days = days if days is not None else sorted(prep)
         for d in days:
             if skip_days and d in skip_days:
                 continue
-            if d not in by_day or d not in ctx.index:
+            if d not in prep or d not in ctx.index:
                 continue
-            self.run_session(d, by_day[d], ctx.loc[d])
+            self.run_session(d, None, ctx.loc[d], prep[d])
         tr = pd.DataFrame([asdict(t) for t in self.trades])
         sg = pd.DataFrame(self.signals)
         daily = pd.Series(self.daily, dtype=float).sort_index()

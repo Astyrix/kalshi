@@ -2,6 +2,21 @@
 
 No Databento account is available, so the research runs on free data.
 
+## Revision 3 (2026-11-24, no out-of-sample result has been seen)
+
+Dukascopy throttles this environment to a handful of files an hour (HTTP 429), so the
+holdout moves to HistData, which now covers 2010-11 .. 2026-11-13 from one vendor
+(histdata.com yearly and monthly M1 files):
+
+| Role | Source | Span |
+|---|---|---|
+| In-sample (development) | Oanda SPX500_USD | 2010-01-04 .. 2019-12-31 |
+| In-sample replication | HistData SPXUSD | 2010-11-15 .. 2018-12-31 |
+| Out-of-sample (holdout) | **HistData SPXUSD** | 2020-01-02 .. 2026-11-13 |
+| Second holdout source (if its download completes) | Dukascopy USA500.IDX | 2020-01-02 .. |
+
+No strategy has passed in-sample, so nothing has been frozen and the holdout is untouched.
+
 ## Revision 2 (2026-11-24, before any result on Oanda or Dukascopy was seen)
 
 Dukascopy's USA500.IDX minute files from late September 2011 onward are empty placeholders

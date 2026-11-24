@@ -76,6 +76,7 @@ for name in only:
 adj = holm(pv)
 lines += ["## Families after a Holm correction (walk-forward, unfavorable costs)", "",
           "| family | p | Holm-adjusted p |", "|---|---|---|"] + [f"| {k} | {pv[k]:.3f} | {adj[k]:.3f} |" for k in pv]
-(out / f"{src}_summary.md").write_text("\n".join(lines) + "\n")
-(out / f"{src}_walkforward.json").write_text(json.dumps(wf, indent=1, default=str))
-print("saved", out / f"{src}_summary.md")
+tag = src if set(only) == set(GRIDS) else f"{src}_{'-'.join(only)}"      # a subset never overwrites the full study
+(out / f"{tag}_summary.md").write_text("\n".join(lines) + "\n")
+(out / f"{tag}_walkforward.json").write_text(json.dumps(wf, indent=1, default=str))
+print("saved", out / f"{tag}_summary.md")
