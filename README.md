@@ -85,7 +85,12 @@ fees both ways):
 The model rarely predicts an edge bigger than the spread, slippage and
 fees, and the few trades it takes break even. Cheap contracts in the last
 minutes win at about their price (about 3.5% won at about 3.4c with 2
-minutes left). Live paper trading agrees (29 trades, 3 wins, about -$2.70).
+minutes left). Live paper trading agrees (30 trades, 3 wins, -$2.87). A second live paper
+trader with no price cap (same model, 1c margin, `--max-price 1.0 --aux`)
+has found no trade in 862 one-minute decisions (about 14 hours): its best
+setup at any price predicted -1.1c a contract at most, -3.6c typically.
+Removing the cap does not create an edge; fees plus spread (about 4-5c a
+round trip at mid prices) are larger than what the model can predict.
 
 Costs decide it (`python -m kbot.experiments --days 346 --only costs,maker`,
 last ~5.5 months, walk-forward): filling exactly at the quote with fees gives
@@ -171,22 +176,22 @@ small edge that belongs to the fastest bots. The rule was chosen from about
 30 variants on the same windows, so the live recorder
 (`kbot/xvenue_watch.py`: reads both books every second, logs BRTI, strike
 and volatility, and reports fills 1-2 reads late with a limit) is the real
-test. Live so far (142 settled windows, two splits; per window, expected value
+test. Live so far (221 settled windows, two splits; per window, expected value
 uses the historical 0.68% split rate):
 
 | Rule (edge >= 0.5c), live | Normal windows | Split windows (mean of 2) | Expected |
 |---|---|---|---|
-| at signal | +$5.58 | -$92 | +$4.92 |
-| zone < 10%, at signal | +$2.40 | -$17 | +$2.27 |
-| filled 1 read later, limit | +$1.87 | -$50 | +$1.52 |
-| zone < 10%, 1 read later, limit | +$0.63 | +$0.66 | +$0.63 |
-| zone < 10%, 2 reads later, limit | +$0.36 | +$9 | +$0.42 |
+| at signal | +$5.43 | -$92 | +$4.77 |
+| zone < 10%, at signal | +$2.68 | -$17 | +$2.55 |
+| filled 1 read later, limit | +$1.81 | -$50 | +$1.46 |
+| zone < 10%, 1 read later, limit | +$0.66 | +$0.66 | +$0.66 |
+| zone < 10%, 2 reads later, limit | +$0.48 | +$9 | +$0.55 |
 
 A normal window cannot lose: both legs together pay exactly $1, and a fill is
 only counted at a net edge of at least zero. The zone rule's late fills match
 history (+$0.4-0.6 vs +$0.46). Late fills without the zone rule did better
-live than on the tapes (+$1.87 vs about $0), and their expected value has held
-at +$1.5-1.6 a window from 104 to 142 windows, so the
+live than on the tapes (+$1.81 vs about $0), and their expected value has held
+at +$1.5-1.6 a window from 104 to 142 windows and +$1.46 at 221, so the
 zone filter may be giving up too much. It only looks at BRTI against
 Kalshi's strike; a split needs the other feed on the other side of its
 own strike. The recorder now also logs Polymarket's live Chainlink price
@@ -237,12 +242,12 @@ events listing is a snapshot 15-20 s stale; only `/orderbook` is live. The
 first live hour, read from that snapshot, showed a $0.985 box that was not
 real.
 
-Live so far (23 hour closes, 29,170 reads, all legs read in parallel in a
-median 0.12 s): boxes under $1 showed up in 2 closes, for 7 reads (cheapest
-$0.963, but only 8-97 contracts deep). Taking 50 per entry, at most one per
-5 s, made 76 boxes and +$1.06 on paper, all riskless ($1 paid; $2 never). Boxes
-at $1.00-2.00 lost 0.7-4.8c each on average, $1.20+ included (paid $2 18% of
-the time). The riskless boxes on the tape last
+Live so far (42 hour closes, 54,317 reads, all legs read in parallel in a
+median 0.12 s): boxes under $1 showed up in 5 closes, for 20 reads (cheapest
+$0.914, median 105 contracts deep). Taking 50 per entry, at most one per
+5 s, made 381 boxes and +$6.04 on paper, all riskless ($1 paid; $2 never).
+Boxes at $1.00-2.00 lost 0.7-3.3c each on average, $1.20+ included (paid $2
+21% of the time). The riskless boxes on the tape last
 well under a second: a bot polling through MaxyCharts does not see them.
 
 Also tried on the 164 tape hours, neither worth trading: resting an order
