@@ -1,0 +1,6 @@
+# Overrides for the free S&P 500 index proxy data (Dukascopy, HistData): bar volume there is
+# tick count (or zero), not SPY shares, so the volume participation cap cannot be applied.
+# SPY trades about a million shares a minute at the open; this system's orders (hundreds of
+# shares) are far below 1% of that, so the cap is switched off rather than faked.
+costs:
+  participation_cap: 0

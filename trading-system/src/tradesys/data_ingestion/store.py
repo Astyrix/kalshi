@@ -22,8 +22,8 @@ def _utc(x) -> pd.Timestamp:
     return t.tz_localize("UTC") if t.tz is None else t.tz_convert("UTC")
 
 
-def _dir(root: Path, dataset: str, schema: str, symbol: str) -> Path:
-    return Path(root) / "raw" / VENDOR / dataset / schema / symbol
+def _dir(root: Path, dataset: str, schema: str, symbol: str, vendor: str = VENDOR) -> Path:
+    return Path(root) / "raw" / vendor / dataset / schema / symbol
 
 
 def _manifest(d: Path) -> dict[str, Any]:
@@ -31,8 +31,9 @@ def _manifest(d: Path) -> dict[str, Any]:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
-def has_month(root: Path, dataset: str, schema: str, symbol: str, a: pd.Timestamp, b: pd.Timestamp) -> bool:
-    d = _dir(root, dataset, schema, symbol)
+def has_month(root: Path, dataset: str, schema: str, symbol: str, a: pd.Timestamp, b: pd.Timestamp,
+              vendor: str = VENDOR) -> bool:
+    d = _dir(root, dataset, schema, symbol, vendor)
     m = _manifest(d).get(a.strftime("%Y-%m"))
     if not m or not (d / f"{a:%Y-%m}.parquet").exists():
         return False
@@ -41,8 +42,8 @@ def has_month(root: Path, dataset: str, schema: str, symbol: str, a: pd.Timestam
 
 
 def write_month(root: Path, dataset: str, schema: str, symbol: str, a: pd.Timestamp, b: pd.Timestamp,
-                bars: pd.DataFrame, meta: dict[str, Any]) -> Path:
-    d = _dir(root, dataset, schema, symbol)
+                bars: pd.DataFrame, meta: dict[str, Any], vendor: str = VENDOR) -> Path:
+    d = _dir(root, dataset, schema, symbol, vendor)
     d.mkdir(parents=True, exist_ok=True)
     path = d / f"{a:%Y-%m}.parquet"
     tmp = path.with_suffix(".tmp")
@@ -55,9 +56,9 @@ def write_month(root: Path, dataset: str, schema: str, symbol: str, a: pd.Timest
 
 
 def load_bars(root: Path, dataset: str, symbol: str, start: str | None = None, end: str | None = None,
-              schema: str = "ohlcv-1m") -> pd.DataFrame:
+              schema: str = "ohlcv-1m", vendor: str = VENDOR) -> pd.DataFrame:
     """All cached months between start and end (UTC, end exclusive), one DataFrame indexed by ts."""
-    d = _dir(root, dataset, schema, symbol)
+    d = _dir(root, dataset, schema, symbol, vendor)
     files = sorted(d.glob("*.parquet"))
     if start:
         files = [f for f in files if f.stem >= _utc(start).strftime("%Y-%m")]

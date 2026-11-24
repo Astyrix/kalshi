@@ -131,6 +131,7 @@ class Backtester:
         v = rows["volume"].to_numpy(float)
         atr = rows["atr14"].to_numpy(float) if "atr14" in rows else np.full(n, np.nan)
         times = rows.index
+        recs = rows.to_dict("records")              # plain dicts: far faster than rows.iloc[i] per bar
         start_eq = self.risk.s.equity
         for i in range(n):
             t = times[i]
@@ -182,7 +183,7 @@ class Backtester:
             if math.isfinite(atr[i]) and atr[i] > 0 and rng > self.cfg.risk.max_bar_range_atr * atr[i]:
                 self.risk.on_anomaly(f"{t:%H:%M} bar range {rng:.2f} > {self.cfg.risk.max_bar_range_atr} x ATR")
             # 3) at the close
-            out = self.strat.on_bar_close(rows.iloc[i], pos)
+            out = self.strat.on_bar_close(recs[i], pos)
             if pos is not None and out == "exit":
                 exit_next = True
             elif pos is None and isinstance(out, Signal) and pending is None:
@@ -215,7 +216,7 @@ class Backtester:
             return "cancelled: opened beyond the target"
         fill = self.cost.market_fill(s.side, bar_open)
         shares = self.risk.size(est, s.stop, self.cost.round_trip_per_share(est))
-        cap = math.floor(self.cost.participation_cap * bar_vol)
+        cap = math.floor(self.cost.participation_cap * bar_vol) if self.cost.participation_cap > 0 else shares
         if shares < 1:
             return "rejected: size rounds to zero"
         part = ""
