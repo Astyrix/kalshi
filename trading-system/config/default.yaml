@@ -1,0 +1,54 @@
+# tradesys default configuration. Every value here is a research default, not a
+# recommendation. Times are America/New_York wall-clock times (DST handled by zoneinfo).
+
+session:
+  timezone: America/New_York
+  open: "09:30"
+  first_entry: "09:31"        # earliest fill: the open of the 09:31 bar, after the 09:30 bar closes
+  entry_cutoff: "10:50"       # no new positions after this time
+  flatten_start: "10:55"      # mandatory exit of anything still open, at this bar's open
+  hard_flat: "11:00"          # positions must be zero by now; anything left is an emergency
+  premarket_start: "04:00"    # pre-market data may be read from here (never traded)
+
+validation:
+  in_sample: ["2010-01-01", "2019-12-31"]
+  out_of_sample: ["2020-01-01", "2026-12-31"]
+  # the out-of-sample period may only be run against a frozen config (see backtesting/freeze.py)
+  frozen_dir: config/frozen
+
+costs:
+  # three scenarios; every backtest is run under each
+  scenarios:
+    normal:      {half_spread: 0.005, slippage: 0.01, commission_per_share: 0.0035, min_commission: 0.35}
+    unfavorable: {half_spread: 0.01,  slippage: 0.02, commission_per_share: 0.0035, min_commission: 0.35}
+    extreme:     {half_spread: 0.02,  slippage: 0.05, commission_per_share: 0.005,  min_commission: 1.00}
+  # regulatory fees on sales; rates change over time, these are the late-2024/2025 schedule
+  sec_fee_per_dollar_sold: 0.0000278     # $27.80 per $1M sold (SEC Section 31)
+  finra_taf_per_share_sold: 0.000166     # max $8.30 per trade
+  finra_taf_max: 8.30
+  participation_cap: 0.10                # fill at most 10% of a bar's volume; the rest is unfilled
+  latency_bars: 0                        # extra whole bars of delay before an order reaches the market
+
+risk:
+  starting_equity: 100000
+  risk_per_trade: 0.0025       # fraction of equity lost if the stop fills at its price
+  max_daily_loss: 0.01
+  max_weekly_loss: 0.03
+  max_consecutive_losses: 3    # halts new entries for the rest of the session
+  max_positions: 1
+  max_trades_per_session: 5
+  max_leverage: 1.0            # notional / equity; 1.0 = no margin
+  allow_short: true
+  kill_switch_file: state/kill_switch.json
+  stale_data_seconds: 90
+  max_spread: 0.05             # $; wider quoted spread halts entries
+  max_bar_range_atr: 6.0       # a 1-minute bar wider than 6 ATR halts entries
+
+data:
+  root: data
+  databento:
+    api_key_env: DATABENTO_API_KEY
+    max_spend_env: TRADESYS_MAX_SPEND_USD
+    equities_dataset: XNAS.ITCH     # verify coverage with `main.py data-coverage` before use
+    options_dataset: OPRA.PILLAR
+    symbol: SPY

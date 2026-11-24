@@ -1,0 +1,9 @@
+# market data is licensed (Databento terms forbid redistribution): never commit it
+data/raw/
+data/processed/
+data/cache/
+logs/
+state/
+.env
+# reports are research output and are committed (the repo root ignores reports/)
+!reports/
