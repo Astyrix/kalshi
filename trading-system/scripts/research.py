@@ -47,7 +47,9 @@ rep = check(bars, d0, d1)
     "Volume is tick count (Dukascopy) or absent (HistData): zero-volume counts are expected and not errors.",
     "HistData timestamps are EST all year (no DST) and were shifted by +5 h to UTC before conversion to New York time."]))
 print(f"{src}: {len(bars)} bars, {d0} .. {d1}; quality {rep.summary()}", flush=True)
-st = Study(cfg, bars, src, dividends=div)
+vix = pd.read_parquet(yd / "VIX_1d.parquet")["close"]
+vix.index = [d.date() for d in vix.index]
+st = Study(cfg, bars, src, dividends=div, vix=vix)
 wf, pv = {}, {}
 lines = [f"# In-sample study: {src} ({st.days[0]} .. {st.days[-1]}, {len(st.days)} sessions)", "",
          "Every grid point under three cost scenarios; walk-forward selection on the unfavorable scenario.",

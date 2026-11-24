@@ -43,9 +43,25 @@ GRIDS: dict[str, dict[str, list]] = {
                        "entry": ["limit"]},
     "vwap_reversion_limit": {"stretch_atr": [2.5, 3.5], "rsi_extreme": [20.0, 30.0], "stop_atr": [1.0, 2.0],
                              "entry": ["limit"]},
+    # declared 2026-11-24 from published / famous-trader rules, before any of these ran
+    "first_candle": {"candle_min": [5, 15, 30], "target_r": [None, 3.0]},
+    "noise_momentum": {"mult": [1.0, 1.5], "every": [30, 15, 5]},
+    "nr_orb": {"nr": [4, 7], "minutes": [5, 15], "stop": ["far"], "target_r": [None]},
+    "vol_breakout": {"k": [0.2, 0.35, 0.5]},
+    "oops": {"min_gap": [0.0, 0.001], "target_r": [None, 2.0]},
+    "turtle_soup": {"target_r": [None, 2.0]},
+    "calendar_long": {"days": ["tom", "pre_holiday", "monday", "friday"]},
+    "gap_go": {"min_gap": [0.003, 0.005], "candle_min": [5, 15]},
+    # declared 2026-11-24: the five families with a positive pre-cost edge, filtered by VIX regime
+    # and daily trend (fewer, better trades); base parameters fixed at their pre-cost-best values
+    **{f"filt_{b}": {"base": [b], "base_params": [bp], "vix": ["any", "high", "low"], "trend": ["any", "with"]}
+       for b, bp in (("first_candle", {"candle_min": 5, "target_r": 3.0}), ("vol_breakout", {"k": 0.35}),
+                     ("gap_go", {"min_gap": 0.003, "candle_min": 5}), ("oops", {"min_gap": 0.0, "target_r": None}),
+                     ("nr_orb", {"nr": 4, "minutes": 5, "stop": "far", "target_r": None}))},
 }
-BASE = {"gap_fill_limit": "gap_fill", "vwap_reversion_limit": "vwap_reversion"}   # grid name -> strategy class
-NEEDS_VOLUME = {"vwap_trend", "vwap_reversion", "momentum", "vwap_reversion_limit"}
+BASE = {"gap_fill_limit": "gap_fill", "vwap_reversion_limit": "vwap_reversion",
+        **{f"filt_{b}": "filtered" for b in ("first_candle", "vol_breakout", "gap_go", "oops", "nr_orb")}}
+NEEDS_VOLUME = {"vwap_trend", "vwap_reversion", "momentum", "vwap_reversion_limit"}   # noise_momentum uses VWAP only as a trailing exit
 
 
 def grid(name: str) -> list[dict[str, Any]]:
@@ -59,13 +75,13 @@ def _key(params: dict) -> str:
 
 class Study:
     def __init__(self, cfg: Config, bars: pd.DataFrame, source: str, dividends: pd.Series | None = None,
-                 out_dir: Path | None = None):
+                 out_dir: Path | None = None, vix: pd.Series | None = None):
         oos0 = cfg.validation.out_of_sample[0]
         cut = pd.Timestamp(dt.datetime.combine(oos0, dt.time(0)), tz="America/New_York")
         if (bars.index >= cut).any():
             bars = bars[bars.index < cut]               # the holdout never enters in-sample research
         self.cfg, self.source = cfg, source
-        self.feats, self.ctx = intraday(bars), daily_context(bars, dividends)
+        self.feats, self.ctx = intraday(bars), daily_context(bars, dividends, vix)
         self.days = sorted(set(self.feats["day"]))
         self.prep = prepare_sessions(cfg, self.feats)                 # sliced once, reused by every run
         self.has_volume = bool((bars["volume"] > 0).mean() > 0.5)

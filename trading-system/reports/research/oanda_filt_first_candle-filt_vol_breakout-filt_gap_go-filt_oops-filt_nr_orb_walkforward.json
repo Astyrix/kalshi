@@ -1,0 +1,597 @@
+{
+ "filt_first_candle": {
+  "strategy": "filt_first_candle",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -1.666
+   },
+   "2012": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -1.676
+   },
+   "2013": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -1.364
+   },
+   "2014": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -1.382
+   },
+   "2015": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -1.266
+   },
+   "2016": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -1.122
+   },
+   "2017": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.887
+   },
+   "2018": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.831
+   },
+   "2019": {
+    "params": "{\"base\": \"first_candle\", \"base_params\": {\"candle_min\": 5, \"target_r\": 3.0}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.899
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ },
+ "filt_vol_breakout": {
+  "strategy": "filt_vol_breakout",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -1.517
+   },
+   "2012": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -1.152
+   },
+   "2013": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -0.699
+   },
+   "2014": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -0.942
+   },
+   "2015": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -0.619
+   },
+   "2016": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.916
+   },
+   "2017": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.872
+   },
+   "2018": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.817
+   },
+   "2019": {
+    "params": "{\"base\": \"vol_breakout\", \"base_params\": {\"k\": 0.35}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.78
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ },
+ "filt_gap_go": {
+  "strategy": "filt_gap_go",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.318
+   },
+   "2012": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": 0.005
+   },
+   "2013": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -0.003
+   },
+   "2014": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": 0.439
+   },
+   "2015": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -0.054
+   },
+   "2016": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.12
+   },
+   "2017": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.05
+   },
+   "2018": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.047
+   },
+   "2019": {
+    "params": "{\"base\": \"gap_go\", \"base_params\": {\"candle_min\": 5, \"min_gap\": 0.003}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.138
+   }
+  },
+  "normal": {
+   "net_profit": -2436.168991782164,
+   "sessions": 2264,
+   "trades": 29,
+   "sharpe": -0.7890670085829317,
+   "sharpe_ci95": [
+    -1.561508396530484,
+    -0.024136982217857456
+   ],
+   "p_mean_le_0": 0.974,
+   "by_year": {
+    "2011": 0.0,
+    "2012": -777.2448295022332,
+    "2013": 0.0,
+    "2014": -1658.924162279931,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": -2886.069083090726,
+   "sessions": 2264,
+   "trades": 29,
+   "sharpe": -0.9192636140940299,
+   "sharpe_ci95": [
+    -1.6509481281140501,
+    -0.15015134840652897
+   ],
+   "p_mean_le_0": 0.986,
+   "by_year": {
+    "2011": 0.0,
+    "2012": -981.1398747998319,
+    "2013": 0.0,
+    "2014": -1904.9292082908942,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": -3876.568505617528,
+   "sessions": 2264,
+   "trades": 29,
+   "sharpe": -1.2001258529003982,
+   "sharpe_ci95": [
+    -1.8450943921085399,
+    -0.5049092373378564
+   ],
+   "p_mean_le_0": 0.994,
+   "by_year": {
+    "2011": 0.0,
+    "2012": -1379.7623067188833,
+    "2013": 0.0,
+    "2014": -2496.8061988986447,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ },
+ "filt_oops": {
+  "strategy": "filt_oops",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -1.167
+   },
+   "2012": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"any\"}",
+    "train_sharpe": 0.026
+   },
+   "2013": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"any\"}",
+    "train_sharpe": -0.598
+   },
+   "2014": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"any\"}",
+    "train_sharpe": -0.421
+   },
+   "2015": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"low\"}",
+    "train_sharpe": -0.185
+   },
+   "2016": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": 0.154
+   },
+   "2017": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": 0.011
+   },
+   "2018": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": 0.01
+   },
+   "2019": {
+    "params": "{\"base\": \"oops\", \"base_params\": {\"min_gap\": 0.0, \"target_r\": null}, \"trend\": \"with\", \"vix\": \"high\"}",
+    "train_sharpe": -0.061
+   }
+  },
+  "normal": {
+   "net_profit": -2344.0316528061667,
+   "sessions": 2264,
+   "trades": 33,
+   "sharpe": -1.0285911089669695,
+   "sharpe_ci95": [
+    -1.4412112464614808,
+    -0.4584519978768521
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": -1488.985300829925,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": -525.9032579826599,
+    "2017": 0.0,
+    "2018": -329.1430939935817,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": -2718.8556502255815,
+   "sessions": 2264,
+   "trades": 33,
+   "sharpe": -1.164144865298916,
+   "sharpe_ci95": [
+    -1.5377211721035644,
+    -0.614463995243111
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": -1829.588022273485,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": -547.128043333898,
+    "2017": 0.0,
+    "2018": -342.13958461819857,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": -3614.3421301899944,
+   "sessions": 2264,
+   "trades": 33,
+   "sharpe": -1.4114038095748447,
+   "sharpe_ci95": [
+    -1.741927899000141,
+    -0.8928837855166287
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": -2647.128615351641,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": -593.6068458046357,
+    "2017": 0.0,
+    "2018": -373.6066690337175,
+    "2019": 0.0
+   }
+  }
+ },
+ "filt_nr_orb": {
+  "strategy": "filt_nr_orb",
+  "source": "oanda",
+  "test_years": [
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018,
+   2019
+  ],
+  "chosen": {
+   "2011": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.57
+   },
+   "2012": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.766
+   },
+   "2013": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.623
+   },
+   "2014": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.543
+   },
+   "2015": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.497
+   },
+   "2016": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.439
+   },
+   "2017": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.308
+   },
+   "2018": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.289
+   },
+   "2019": {
+    "params": "{\"base\": \"nr_orb\", \"base_params\": {\"minutes\": 5, \"nr\": 4, \"stop\": \"far\", \"target_r\": null}, \"trend\": \"any\", \"vix\": \"high\"}",
+    "train_sharpe": -0.375
+   }
+  },
+  "normal": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "unfavorable": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  },
+  "extreme": {
+   "net_profit": 0.0,
+   "sessions": 2264,
+   "trades": 0,
+   "sharpe": 0.0,
+   "sharpe_ci95": [
+    0.0,
+    0.0
+   ],
+   "p_mean_le_0": 1.0,
+   "by_year": {
+    "2011": 0.0,
+    "2012": 0.0,
+    "2013": 0.0,
+    "2014": 0.0,
+    "2015": 0.0,
+    "2016": 0.0,
+    "2017": 0.0,
+    "2018": 0.0,
+    "2019": 0.0
+   }
+  }
+ }
+}

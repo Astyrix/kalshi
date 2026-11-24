@@ -259,8 +259,263 @@ class OpenDrive(_Base):
                       evidence={"move": c - o, "atr_d14": atr})
 
 
+
+# ---------------------------------------------------------------- published / famous-trader rules
+# Each adapted to the 9:30-11:00 window (entries until 10:50, flat by 10:55). Sources are
+# secondary summaries where the original text was not accessible; assumptions are stated.
+
+class FirstCandle(_Base):
+    """Zarattini & Aziz (2023) ORB variant: trade the direction of the first N-minute candle
+    (close above its open: long; below: short; a doji: no trade) at the next bar's open; stop at
+    the candle's other extreme; target R multiple (the paper used 10R, i.e. usually the time exit)."""
+    name = "first_candle"
+
+    @classmethod
+    def defaults(cls):
+        return {"candle_min": 5, "target_r": None}
+
+    def on_bar_close(self, row, position):
+        p = self.params
+        if position is not None or self.entries or row["minute"] != p["candle_min"] - 1:
+            return None
+        o, c, hi, lo = row.get("sess_open"), row["close"], row["sess_high"], row["sess_low"]
+        if not _ok(o, hi, lo) or abs(c - o) < 0.01:
+            return None
+        side = 1 if c > o else -1
+        stop = lo if side > 0 else hi
+        if (c - stop) * side <= 0.01:
+            return None
+        self.entries += 1
+        return Signal(side, stop, self._target(side, c, stop, p["target_r"]), None,
+                      reason=f"first {p['candle_min']}-minute candle {'up' if side > 0 else 'down'}",
+                      evidence={"candle_open": o, "candle_close": c})
+
+
+class NoiseMomentum(_Base):
+    """Zarattini, Aziz & Barbon (2024) 'noise area' momentum, per secondary summaries: bands
+    UB = max(open, prev close) * (1 + mult * sigma), LB = min(open, prev close) * (1 - mult * sigma),
+    sigma = mean |move from the open| at this minute over the previous 14 sessions. At check times
+    (every `every` minutes from `first_check`), a close above UB goes long, below LB short; an open
+    position is closed at a check if price is back inside max(UB, VWAP) (long) / min(LB, VWAP) (short).
+    Hard stop at the opposite band. ASSUMPTION: checks use the close of the bar ending at the check time."""
+    name = "noise_momentum"
+
+    @classmethod
+    def defaults(cls):
+        return {"mult": 1.0, "every": 30, "first_check": 30}
+
+    def _bands(self, row):
+        sg, o, pc = row.get("noise_sigma"), row.get("sess_open"), self.ctx.get("prev_close")
+        if not _ok(sg, o, pc):
+            return None
+        return max(o, pc) * (1 + self.params["mult"] * sg), min(o, pc) * (1 - self.params["mult"] * sg)
+
+    def on_bar_close(self, row, position):
+        p = self.params
+        m = row["minute"] + 1                                    # minutes elapsed at this bar's close
+        if m < p["first_check"] or (m - p["first_check"]) % p["every"]:
+            return None
+        b = self._bands(row)
+        if b is None:
+            return None
+        ub, lb = b
+        c, vw = row["close"], row.get("vwap")
+        if position is not None:
+            if position.side > 0 and c < max(ub, vw if _ok(vw) else ub):
+                return "exit"
+            if position.side < 0 and c > min(lb, vw if _ok(vw) else lb):
+                return "exit"
+            return None
+        if c > ub:
+            return Signal(1, lb, None, None, reason="close above the noise area", evidence={"ub": ub, "lb": lb})
+        if c < lb:
+            return Signal(-1, ub, None, None, reason="close below the noise area", evidence={"ub": ub, "lb": lb})
+        return None
+
+
+class NarrowRangeORB(OpeningRangeBreakout):
+    """Toby Crabel: opening-range breakouts only on the day after a narrow-range day (yesterday's
+    range the smallest of the last 4 or 7 sessions): volatility compression before expansion."""
+    name = "nr_orb"
+
+    @classmethod
+    def defaults(cls):
+        return {**OpeningRangeBreakout.defaults(), "nr": 7}
+
+    def on_bar_close(self, row, position):
+        v = self.ctx.get(f"nr{self.params['nr']}")
+        if v is None or pd.isna(v) or not bool(v):
+            return None
+        return super().on_bar_close(row, position)
+
+
+class VolatilityBreakout(_Base):
+    """Larry Williams volatility breakout: a close beyond open +/- k * yesterday's range enters in
+    that direction at the next open (approximating his stop entry, slightly worse); stop at the open."""
+    name = "vol_breakout"
+
+    @classmethod
+    def defaults(cls):
+        return {"k": 0.35}
+
+    def on_bar_close(self, row, position):
+        if position is not None or self.entries:
+            return None
+        o, rg, c = row.get("sess_open"), self.ctx.get("prev_range"), row["close"]
+        if not _ok(o, rg) or rg <= 0:
+            return None
+        k = self.params["k"]
+        side = 1 if c > o + k * rg else -1 if c < o - k * rg else 0
+        if not side:
+            return None
+        self.entries += 1
+        return Signal(side, o, None, None, reason=f"broke open {'+' if side > 0 else '-'} {k} x yesterday's range",
+                      evidence={"range": rg})
+
+
+class Oops(_Base):
+    """Larry Williams 'Oops': the market opens beyond yesterday's low (high) by min_gap and then
+    trades back through that level -> trade back toward yesterday's range; stop beyond the session
+    extreme by buffer_atr ATRs."""
+    name = "oops"
+
+    @classmethod
+    def defaults(cls):
+        return {"min_gap": 0.0, "buffer_atr": 0.25, "target_r": None}
+
+    def on_bar_close(self, row, position):
+        p = self.params
+        if position is not None or self.entries:
+            return None
+        o, pl, ph, a, c = row.get("sess_open"), self.ctx.get("prev_low"), self.ctx.get("prev_high"), row.get("atr14"), row["close"]
+        if not _ok(o, pl, ph, a) or a <= 0:
+            return None
+        if o < pl * (1 - p["min_gap"]) and c > pl:
+            stop = row["sess_low"] - p["buffer_atr"] * a
+            self.entries += 1
+            return Signal(1, stop, self._target(1, c, stop, p["target_r"]), None, reason="gap below yesterday's low failed",
+                          evidence={"prev_low": pl})
+        if o > ph * (1 + p["min_gap"]) and c < ph:
+            stop = row["sess_high"] + p["buffer_atr"] * a
+            self.entries += 1
+            return Signal(-1, stop, self._target(-1, c, stop, p["target_r"]), None, reason="gap above yesterday's high failed",
+                          evidence={"prev_high": ph})
+        return None
+
+
+class TurtleSoup(_Base):
+    """Linda Raschke 'Turtle Soup', intraday: price trades below the prior 20-session low (above the
+    high) and closes back above (below) it -> fade the false breakout; stop beyond today's extreme."""
+    name = "turtle_soup"
+
+    @classmethod
+    def defaults(cls):
+        return {"buffer_atr": 0.25, "target_r": None}
+
+    def on_bar_close(self, row, position):
+        p = self.params
+        if position is not None or self.entries:
+            return None
+        lo, hi, a, c = self.ctx.get("low20"), self.ctx.get("high20"), row.get("atr14"), row["close"]
+        if not _ok(lo, hi, a) or a <= 0:
+            return None
+        if row["sess_low"] < lo < c:
+            stop = row["sess_low"] - p["buffer_atr"] * a
+            self.entries += 1
+            return Signal(1, stop, self._target(1, c, stop, p["target_r"]), None, reason="false break of the 20-day low",
+                          evidence={"low20": lo})
+        if row["sess_high"] > hi > c:
+            stop = row["sess_high"] + p["buffer_atr"] * a
+            self.entries += 1
+            return Signal(-1, stop, self._target(-1, c, stop, p["target_r"]), None, reason="false break of the 20-day high",
+                          evidence={"high20": hi})
+        return None
+
+
+class CalendarLong(_Base):
+    """Calendar effects: long from 9:31 to the flatten time on turn-of-month days ('tom'), the
+    session before a holiday ('pre_holiday'), Mondays or Fridays; stop 1 daily ATR below."""
+    name = "calendar_long"
+
+    @classmethod
+    def defaults(cls):
+        return {"days": "tom"}
+
+    def on_bar_close(self, row, position):
+        if position is not None or self.entries or row["minute"] != 0:
+            return None
+        d, ctx = self.params["days"], self.ctx
+        hit = {"tom": ctx.get("tom") is True or ctx.get("tom") == True, "pre_holiday": ctx.get("pre_holiday") == True,  # noqa: E712
+               "monday": ctx.get("dow") == 0, "friday": ctx.get("dow") == 4}[d]
+        a = ctx.get("atr_d14")
+        if not hit or not _ok(a):
+            return None
+        self.entries += 1
+        return Signal(1, row["close"] - a, None, None, reason=f"calendar: {d}", evidence={"days": d})
+
+
+class GapGo(_Base):
+    """Gap and go: an overnight gap beyond min_gap whose first N-minute candle moves further in the
+    gap's direction -> follow it; stop at the session's opposite extreme."""
+    name = "gap_go"
+
+    @classmethod
+    def defaults(cls):
+        return {"min_gap": 0.003, "candle_min": 5}
+
+    def on_bar_close(self, row, position):
+        p = self.params
+        if position is not None or self.entries or row["minute"] != p["candle_min"] - 1:
+            return None
+        g, o, c = self.ctx.get("gap_adj"), row.get("sess_open"), row["close"]
+        if not _ok(g, o) or abs(g) < p["min_gap"]:
+            return None
+        side = 1 if g > 0 else -1
+        if (c - o) * side <= 0.01:
+            return None
+        stop = row["sess_low"] if side > 0 else row["sess_high"]
+        self.entries += 1
+        return Signal(side, stop, None, None, reason=f"{g:+.2%} gap, first candle continues", evidence={"gap": g})
+
+
+
+class Filtered(_Base):
+    """Wraps a base strategy and passes its entries only on chosen days: vix 'high' (previous VIX
+    close >= vix_level), 'low' (< vix_level) or 'any'; trend 'with' (longs only when the previous
+    close is above its 20-day average, shorts only below) or 'any'. Exits always pass."""
+    name = "filtered"
+
+    @classmethod
+    def defaults(cls):
+        return {"base": "first_candle", "base_params": {}, "vix": "any", "vix_level": 20.0, "trend": "any"}
+
+    def __init__(self, **params):
+        super().__init__(**params)
+        self.inner = REGISTRY[self.params["base"]](**dict(self.params["base_params"]))
+
+    def on_session_start(self, day, ctx):
+        super().on_session_start(day, ctx)
+        self.inner.on_session_start(day, ctx)
+
+    def on_bar_close(self, row, position):
+        out = self.inner.on_bar_close(row, position)
+        if not isinstance(out, Signal):
+            return out
+        p, ctx = self.params, self.ctx
+        vx = ctx.get("vix_prev")
+        if p["vix"] != "any":
+            if not _ok(vx) or (p["vix"] == "high") != (vx >= p["vix_level"]):
+                return None
+        if p["trend"] == "with":
+            tr = ctx.get("sma_d20_dist")
+            if not _ok(tr) or (tr > 0) != (out.side > 0):
+                return None
+        return out
+
+
 REGISTRY = {c.name: c for c in (OpeningRangeBreakout, VWAPTrend, VWAPReversion, GapFill, MomentumBreakout,
-                                LiquiditySweep, OpenDrive)}
+                                LiquiditySweep, OpenDrive, FirstCandle, NoiseMomentum, NarrowRangeORB,
+                                VolatilityBreakout, Oops, TurtleSoup, CalendarLong, GapGo, Filtered)}
 
 
 def make(name: str, **params: Any):

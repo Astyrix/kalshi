@@ -53,7 +53,7 @@ def true_range(h: pd.Series, l: pd.Series, c: pd.Series) -> pd.Series:
     return pd.concat([h - l, (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
 
 
-def daily_context(bars: pd.DataFrame, dividends: pd.Series | None = None) -> pd.DataFrame:
+def daily_context(bars: pd.DataFrame, dividends: pd.Series | None = None, vix: pd.Series | None = None) -> pd.DataFrame:
     """One row per session with values fixed before the open.
 
     dividends: optional Series of cash amounts indexed by ex-date; on an ex-date SPY opens
@@ -78,7 +78,41 @@ def daily_context(bars: pd.DataFrame, dividends: pd.Series | None = None) -> pd.
     d["ret_d1"] = d["rth_close"].shift(1) / d["rth_close"].shift(2) - 1
     d["ret_d5"] = d["rth_close"].shift(1) / d["rth_close"].shift(6) - 1
     d["sma_d20_dist"] = d["prev_close"] / d["rth_close"].rolling(20).mean().shift(1) - 1
+    rng = d["rth_high"] - d["rth_low"]
+    d["prev_range"] = rng.shift(1)
+    d["nr4"] = (rng == rng.rolling(4).min()).shift(1).astype("boolean")   # yesterday narrowest of the last 4
+    d["nr7"] = (rng == rng.rolling(7).min()).shift(1).astype("boolean")
+    d["low20"] = d["rth_low"].rolling(20).min().shift(1)                   # prior 20 sessions, known before the open
+    d["high20"] = d["rth_high"].rolling(20).max().shift(1)
+    # calendar facts are published in advance (exchange calendar), so they are not lookahead
+    days = list(d.index)
+    nxt = {a: b for a, b in zip(days, days[1:])}
+    try:
+        from ..market_calendar import sessions as _sessions
+        cal = _sessions(days[0], days[-1] + dt.timedelta(days=10))
+        nxt = {a: b for a, b in zip(cal, cal[1:])}
+        prv = {b: a for a, b in zip(cal, cal[1:])}
+    except Exception:
+        prv = {b: a for a, b in zip(days, days[1:])}
+    def _gapdays(x):
+        n = nxt.get(x)
+        return (n - x).days if n else 1
+    d["pre_holiday"] = [_gapdays(x) > (3 if x.weekday() == 4 else 1) for x in d.index]
+    # turn of month: the last session of a month or the first three of the next
+    first3, last1 = set(), set()
+    if days:
+        cal_days = sorted(set(list(nxt) + list(nxt.values())))
+        by_month: dict = {}
+        for x in cal_days:
+            by_month.setdefault((x.year, x.month), []).append(x)
+        for v in by_month.values():
+            first3.update(v[:3])
+            last1.add(v[-1])
+    d["tom"] = [x in first3 or x in last1 for x in d.index]
     d["dow"] = [x.weekday() for x in d.index]
+    if vix is not None:                                   # VIX close of the previous session
+        v = vix.sort_index()
+        d["vix_prev"] = [v[v.index < x].iloc[-1] if (v.index < x).any() else np.nan for x in d.index]
     d["early_close"] = [session_close(x) < dt.time(16, 0) for x in d.index]
     # same-day values (rth_*) are outcomes, not features: keep them under explicit names only
     return d.rename(columns={"rth_high": "day_high_outcome", "rth_low": "day_low_outcome",
@@ -114,6 +148,12 @@ def intraday(bars: pd.DataFrame, or_minutes: tuple[int, ...] = (5, 15, 30), relv
     r["sess_high"], r["sess_low"] = h.groupby(day).cummax(), l.groupby(day).cummin()
     r["sess_open"] = o.groupby(day).transform("first")
     r["cum_vol"] = v.groupby(day).cumsum()
+    # noise area (Zarattini, Aziz, Barbon): average absolute move from the open at this minute
+    # of the session over the previous 14 sessions
+    r["ret_open"] = c / r["sess_open"] - 1
+    mv = r["ret_open"].abs().groupby([day, r["minute"]]).mean().unstack("minute")
+    noise = mv.rolling(14, min_periods=10).mean().shift(1)
+    r["noise_sigma"] = noise.stack().reindex(pd.MultiIndex.from_arrays([day, r["minute"]])).to_numpy()
     for n in or_minutes:
         first = r["minute"] < n
         orh = h.where(first).groupby(day).transform("max")
