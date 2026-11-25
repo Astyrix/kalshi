@@ -52,6 +52,15 @@ def evaluate(day: dt.date, rewrite: bool = False) -> None:
     if q.empty:
         print(json.dumps({"day": str(day), "options_real": "no recorded quotes"}), flush=True)
         return
+    win_end = pd.Timestamp(dt.datetime.combine(day, dt.time(11, 0)), tz=NY)
+    if not (q["quote_ts"].dropna() <= win_end).any():
+        rec = {"day": str(day), "skip": "no quotes recorded in the 9:30-11:00 window",
+               "first_quote": str(q["quote_ts"].min())}
+        OUT.mkdir(parents=True, exist_ok=True)
+        with (OUT / "options_calibration.jsonl").open("a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+        print(json.dumps(rec), flush=True)
+        return
     b = yahoo_spy_minutes(7)
     b = b[(b.index.second == 0) & (b.index.tz_convert(NY).date == day)][["open", "high", "low", "close", "volume"]].astype(float)
     trades = []
