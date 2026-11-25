@@ -51,6 +51,25 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
   to the close does not rescue them on 2010-2019 data (noise momentum Sharpe -0.43..+0.15).
 - About 30 families and 215 parameter sets have been tested in total (trial_log.jsonl).
 
+## Options (user direction 2026-11-25: trade SPY options in 9:30-11:00)
+
+- No free historical SPY option quotes exist here (no Databento account; Cboe's delayed chain
+  refuses automated access; Yahoo's chain needs a login cookie). The options engine is therefore
+  MODELED: Black-Scholes in trading-variance time, VIX x 1.15 with skew (0DTE ATM straddle at
+  9:35 ~0.73% of spot, near market levels), the historical expiry calendar (daily 0DTE only from
+  Nov 2022), spreads scaled to premium, $0.69 a contract a side, premium stops/targets.
+- Long calls/puts on the ten best underlying signals, 8 contract settings each, three cost
+  scenarios (reports/research/options_summary.md): every family loses; walk-forward picks no
+  trade; best is gap-and-go (gaps >= 0.5%) with 1-DTE ATM options, +$454 over 10 years.
+- Why: from 9:35 to 10:55 SPY moved on average 72% of what the option model implies (83% at
+  VIX x 1.0). Option buyers overpay for movement (the volatility risk premium), so buying
+  options makes weak directional signals worse.
+- The structurally positive side is selling premium with defined risk (credit spreads / iron
+  condors), but a modeled test of that would only echo the assumed implied volatility: it needs
+  real option quotes (paid history, or recording real chains going forward).
+- The live paper engine records each shadow trade as a modeled ATM option with a 50% premium
+  stop (one contract at SPY ~$720 risks more than the $250 budget at full premium).
+
 ## Running (restart at each 2-hour limit)
 
 - SPY live paper engine: `python scripts/paper_live.py --minutes 115` (sleeps outside 9:30-11:00;
