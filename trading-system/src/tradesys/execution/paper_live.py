@@ -41,6 +41,15 @@ class PaperLive:
         self.out.mkdir(parents=True, exist_ok=True)
         self.store = SignalStore(ROOT / "state" / "signals.db")
         self.last_state: dict[str, str] = {}
+        self.vix: pd.Series | None = None            # daily VIX closes (the options model uses the previous close)
+
+    def _vix(self) -> pd.Series:
+        if self.vix is None:
+            from ..data_ingestion.free_sources import yahoo_daily
+            v = yahoo_daily("^VIX")["close"]
+            v.attrs = {}
+            self.vix = v
+        return self.vix
 
     def _bars(self) -> pd.DataFrame:
         b = yahoo_spy_minutes(29)
@@ -54,7 +63,7 @@ class PaperLive:
         last_bar = bars.index[-1].tz_convert(NY)
         closed = bars[bars.index.tz_convert(NY) + pd.Timedelta(minutes=1) <= now.tz_convert(NY)]
         stale = (now.tz_convert(NY) - (last_bar + pd.Timedelta(minutes=1))).total_seconds()
-        feats, ctx = intraday(closed), daily_context(closed)
+        feats, ctx = intraday(closed), daily_context(closed, vix=self._vix())
         today = feats[feats["day"] == day]
         lines = []
         for sp in self.specs:
@@ -83,6 +92,8 @@ class PaperLive:
                        "target": open_pos["target"], "signal_time": str(open_pos["time"]),
                        "reason": open_pos["reason"]},
                    "window": {"entries_until": f"{w.entry_cutoff:%H:%M}", "flat_by": f"{w.flatten_start:%H:%M}"}}
+            if res is not None and (open_pos or len(tr)):
+                rec["options_MODELED"] = self._options(day, today, ctx, tr, open_pos, now)
             key = sp["name"] + json.dumps(sp["params"], sort_keys=True)
             changed = self.last_state.get(key) != json.dumps([state, len(tr)])
             self.last_state[key] = json.dumps([state, len(tr)])
@@ -93,7 +104,32 @@ class PaperLive:
                 print(json.dumps(rec, default=str), flush=True)
             if final and res is not None:
                 self._record(day, sp, res)
+                if rec.get("options_MODELED"):
+                    with (self.out / "options_trades.jsonl").open("a") as fh:
+                        fh.write(json.dumps({"day": str(day), "strategy": sp["name"], "params": sp["params"],
+                                             "trades": rec["options_MODELED"]}, default=str) + "\n")
         return lines
+
+    def _options(self, day, today, ctx, tr, open_pos, now) -> list[dict]:
+        """The same trades as long calls (long) / puts (short), ATM, nearest expiry, MODELED prices:
+        Black-Scholes on the previous VIX close x 1.15, the backtest's spread and commission model."""
+        from ..options.overlay import OptionParams, overlay
+        rows = tr.copy()
+        if open_pos:                                  # value the open position at the last closed bar
+            last = today.iloc[-1]
+            rows = pd.concat([rows, pd.DataFrame([{"day": day, "side": int(open_pos["side"]),
+                                                   "entry_raw": float(today.loc[today.index >= pd.Timestamp(open_pos["time"]), "open"].iloc[0]),
+                                                   "entry_time": pd.Timestamp(open_pos["time"]),
+                                                   "exit_raw": float(last["close"]), "exit_time": today.index[-1] + pd.Timedelta(minutes=1),
+                                                   "net": 0.0}])], ignore_index=True)
+        o = overlay(rows, {day: today}, ctx, OptionParams(delta=0.5, premium_stop=0.5), "normal",
+                    equity=self.cfg.risk.starting_equity, risk_per_trade=self.cfg.risk.risk_per_trade)
+        keep = ["right", "strike", "expiry", "contracts", "entry_time", "entry_ask", "exit_time", "exit_bid", "exit_reason", "net"]
+        out = o[keep].to_dict("records") if len(o) else []
+        out += [{"skipped": why} for _, why in o.attrs.get("skipped", [])]
+        if open_pos and out:
+            out[-1]["exit_reason"] = "OPEN (marked at the last bar)"
+        return out
 
     def _record(self, day: dt.date, sp: dict, res) -> None:
         for _, s in res.signals.iterrows():

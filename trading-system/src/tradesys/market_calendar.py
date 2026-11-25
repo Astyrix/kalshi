@@ -36,7 +36,11 @@ def sessions(start: dt.date, end: dt.date) -> list[dt.date]:
 
 
 def previous_session(day: dt.date) -> dt.date:
-    return _cal().previous_session(pd.Timestamp(day)).date()
+    """The session before `day` (for a non-session day, the last session before it)."""
+    ts = pd.Timestamp(day)
+    if not _cal().is_session(ts):
+        return _cal().date_to_session(ts, direction="previous").date()
+    return _cal().previous_session(ts).date()
 
 
 def session_close(day: dt.date) -> dt.time:

@@ -111,8 +111,11 @@ def daily_context(bars: pd.DataFrame, dividends: pd.Series | None = None, vix: p
     d["tom"] = [x in first3 or x in last1 for x in d.index]
     d["dow"] = [x.weekday() for x in d.index]
     if vix is not None:                                   # VIX close of the previous session
-        v = vix.sort_index()
-        d["vix_prev"] = [v[v.index < x].iloc[-1] if (v.index < x).any() else np.nan for x in d.index]
+        v = pd.Series(np.asarray(vix, dtype=float), index=[pd.Timestamp(i).date() for i in vix.index]).sort_index()
+        keys = np.array(v.index, dtype=object)
+        pos = np.searchsorted(keys, np.array(list(d.index), dtype=object), side="left") - 1
+        vals = v.to_numpy()
+        d["vix_prev"] = [vals[i] if i >= 0 else np.nan for i in pos]
     d["early_close"] = [session_close(x) < dt.time(16, 0) for x in d.index]
     # same-day values (rth_*) are outcomes, not features: keep them under explicit names only
     return d.rename(columns={"rth_high": "day_high_outcome", "rth_low": "day_low_outcome",
