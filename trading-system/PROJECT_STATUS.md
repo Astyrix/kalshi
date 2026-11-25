@@ -89,7 +89,9 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
   9:35, real spread, delay): reports/paper/options_calibration.jsonl.
 - First real data point (noon 2026-11-25, outside the window, VIX 26.4): the real 0DTE ATM
   straddle was 0.75% of spot, 0.73x the model's price (VIX x 1.15); ATM half spread ~0.4% of
-  the premium. If the model overprices 0DTE options at 9:35 too, the modeled finding that
+  the premium. Through the afternoon (11:52-13:32 quotes, every 10 minutes) real/model ran
+  0.72-0.94, mostly 0.82-0.89: real 0DTE IV 22-28% in the model's variance-time units against
+  the model's 30.3%, on a day SPY recovered 2% from its low. If the model overprices 0DTE options at 9:35 too, the modeled finding that
   buyers overpay (realized 72% of implied) is partly an artifact of the model. Not concluded:
   one snapshot; the recorded 9:30-11:00 sessions will settle it.
 - Today's session (2026-11-25) was not watched live: a worker restart stopped every bot before
