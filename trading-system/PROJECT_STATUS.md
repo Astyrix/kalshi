@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Last updated: 2026-11-24 (evening, New York). Read this first when continuing in a new session.
+Last updated: 2026-11-25 (noon, New York). Read this first when continuing in a new session.
 
 ## Headline
 
@@ -70,11 +70,38 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
 - The live paper engine records each shadow trade as a modeled ATM option with a 50% premium
   stop (one contract at SPY ~$720 risks more than the $250 budget at full premium).
 
+### Real option quotes (from 2026-11-25; user approved fc.yahoo.com)
+
+- Yahoo's SPY chain works (anonymous cookie + crumb): real bid/ask for every listed strike and
+  expiry, about **15 minutes delayed** (put-call parity of the mids matched SPY 15 minutes
+  earlier; the latest near-the-money trade is consistently ~903 s old). The underlying quote is
+  real time. `src/tradesys/data_ingestion/yahoo_options.py`.
+- `scripts/record_options.py` records the nearest expiry, the next, and the first >= 7 days out
+  (strikes within 5% of spot) every minute 9:40-11:20 New York (quotes stamped ~9:25-11:05),
+  to data/recorded/ (gitignored), then at 11:20 scores the day once.
+- Scoring (`src/tradesys/options/real_quotes.py`), rules declared 2026-11-25 before any
+  window quotes existed: each shadow share trade as a long ATM 0DTE / 1DTE call or put (50%
+  premium stop) and as a $2 credit spread in the signal's direction; plus four 0DTE iron
+  condors with no signal (9:45 / 10:00 entry, short strikes 0.3% / 0.6% out, $3 wings, exit
+  10:55, stop at 2x credit). Every leg crosses the real spread on the first quote stamped at or
+  after the decision; $0.69 a contract a leg a side; max loss per trade within $250.
+  Results: reports/paper/options_real.jsonl; calibration (real vs modeled 0DTE straddle at
+  9:35, real spread, delay): reports/paper/options_calibration.jsonl.
+- First real data point (noon 2026-11-25, outside the window, VIX 26.4): the real 0DTE ATM
+  straddle was 0.75% of spot, 0.73x the model's price (VIX x 1.15); ATM half spread ~0.4% of
+  the premium. If the model overprices 0DTE options at 9:35 too, the modeled finding that
+  buyers overpay (realized 72% of implied) is partly an artifact of the model. Not concluded:
+  one snapshot; the recorded 9:30-11:00 sessions will settle it.
+- Today's session (2026-11-25) was not watched live: a worker restart stopped every bot before
+  9:30. Next sessions: Fri 2026-11-27 (1 p.m. close), Mon 2026-11-30.
+
 ## Running (restart at each 2-hour limit)
 
 - SPY live paper engine: `python scripts/paper_live.py --minutes 115` (sleeps outside 9:30-11:00;
   records only sessions it watched live; reports/paper/, state/signals.db).
-- Dukascopy holdout download: `python scripts/fetch_dukascopy.py 2020-01-01 2026-10-25` (resumable).
+- Real option-chain recorder and scorer: `python scripts/record_options.py --minutes 115`
+  (records 9:40-11:20 New York on sessions, scores the day after 11:20; `--evaluate DAY` rescores).
+- Dukascopy holdout download: `python scripts/fetch_dukascopy.py 2020-01-01 2026-10-25` (resumable, done).
 - The Kalshi bots (separate project in the repo root).
 
 ## Built (src/tradesys/)
@@ -85,12 +112,13 @@ data-quality reports; causal leak-tested features; 7 strategy families; event-dr
 (next-open fills, gap stops, stop-first, trade-through limits, volume cap, three cost
 scenarios, session cache); risk manager and persistent kill switch; metrics with block
 bootstrap; research runner (in-sample guard, trial log, walk-forward, Holm); freeze and
-holdout guard; signal store; live paper engine; limit-order entries. 26 tests pass.
+holdout guard; signal store; live paper engine; limit-order entries; modeled options engine;
+real option-chain recorder and real-quote scorer. 36 tests pass.
 
 ## Not built yet
 
-Options engine (no free historical options data with real bid/ask), regime classifier,
-dashboard, broker paper integration, Monte Carlo report. These wait for either a validated
+Historical options backtests on real quotes (no free history; real quotes are recorded from
+2026-11-25 forward), regime classifier, dashboard, broker paper integration, Monte Carlo report. These wait for either a validated
 strategy or the data they need.
 
 ## Next steps
