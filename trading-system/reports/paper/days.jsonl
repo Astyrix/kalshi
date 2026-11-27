@@ -1,0 +1,17 @@
+{"day": "2026-11-27", "strategy": "orb", "params": {}, "trades": 1, "net": -249.80947891039486, "halts": []}
+{"day": "2026-11-27", "strategy": "vwap_trend", "params": {}, "trades": 2, "net": 94.24823586356473, "halts": []}
+{"day": "2026-11-27", "strategy": "vwap_reversion", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "gap_fill", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "momentum", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "sweep", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "open_drive", "params": {}, "trades": 1, "net": 25.979477812062488, "halts": []}
+{"day": "2026-11-27", "strategy": "first_candle", "params": {}, "trades": 1, "net": -251.64271179420578, "halts": []}
+{"day": "2026-11-27", "strategy": "noise_momentum", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "nr_orb", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "vol_breakout", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "oops", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "turtle_soup", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "calendar_long", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "gap_go", "params": {}, "trades": 0, "net": 0.0, "halts": []}
+{"day": "2026-11-27", "strategy": "filtered", "params": {}, "trades": 1, "net": -251.64271179420578, "halts": []}
+{"day": "2026-11-27", "strategy": "event_long", "params": {}, "trades": 0, "net": 0.0, "halts": []}
