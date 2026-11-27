@@ -1,6 +1,6 @@
 # PROJECT_STATUS
 
-Last updated: 2026-11-25 (noon, New York). Read this first when continuing in a new session.
+Last updated: 2026-11-27 (11:40, New York). Read this first when continuing in a new session.
 
 ## Headline
 
@@ -94,8 +94,23 @@ Proxy check (reports/proxy_vs_spy.md): 1-minute return correlation with real SPY
   the model's 30.3%, on a day SPY recovered 2% from its low. If the model overprices 0DTE options at 9:35 too, the modeled finding that
   buyers overpay (realized 72% of implied) is partly an artifact of the model. Not concluded:
   one snapshot; the recorded 9:30-11:00 sessions will settle it.
-- Today's session (2026-11-25) was not watched live: a worker restart stopped every bot before
-  9:30. Next sessions: Fri 2026-11-27 (1 p.m. close), Mon 2026-11-30.
+- 2026-11-25 was not watched live (a worker restart stopped every bot before 9:30).
+- **First recorded session, Fri 2026-11-27** (half day; 96 snapshots, median delay 902 s; VIX
+  prior close 26.8). SPY opened ~723, fell to ~720 by 10:00, rallied to ~726 by 10:45.
+  - Calibration at 9:35: real 0DTE ATM straddle (723) mid $5.49 = 0.76% of spot; the model
+    (VIX x 1.15) said $6.89, so real/model 0.80 (0.72-0.94 on Wednesday afternoon). ATM half
+    spread ~0.18% of premium (1 cent). The straddle mid fell to $3.42 by 10:55.
+  - Shadow share trades (5 strategies, 6 trades; first_candle and filtered took the same trade):
+    -$633 total at 1x leverage. Modeled ATM 0DTE options on them: -$493.
+  - Pre-declared rules on real quotes, crossing every spread, $0.69 a contract a leg a side
+    (mid-fill P&L in brackets): long_0dte 6 trades -$368 (-$354); long_1dte 0 trades (one
+    contract risks $262-293 at the 50% stop, over the $250 cap); credit_2w 6 trades -$270
+    (-$231); condors 9:45/0.3% +$19, 9:45/0.6% +$29, 10:00/0.3% -$53, 10:00/0.6% -$16
+    (all four -$19 net, -$1 at mid).
+  - One day decides nothing. It does say the model overprices 0DTE options by ~20-25% at the
+    open, so the modeled finding that option buyers overpay is partly a model artifact; the
+    real-quote record, not the model, is what counts from here.
+- Next session: Mon 2026-11-30.
 
 ## Running (restart at each 2-hour limit)
 
